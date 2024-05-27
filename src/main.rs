@@ -39,8 +39,17 @@ fn connect() -> Result<()> {
     let listener = TcpListener::bind(addr.clone())?;
 
     for client in listener.incoming() {
-        // TODO: Don't crash program when error occurred
-        handle_client(client?)?
+        match client {
+            Ok(client) => {
+                let addr = client.peer_addr().unwrap();
+                if let Err(err) = handle_client(client) {
+                    error!("Error while handling {}: {}", addr, err);
+                }
+            }
+            Err(err) => {
+                error!("Client is invalid: {}", err);
+            }
+        }
     }
 
     Ok(())
