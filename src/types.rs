@@ -1,6 +1,6 @@
 use num_derive::FromPrimitive;
 
-#[allow(non_camel_case_types, dead_code)]
+#[allow(non_camel_case_types)]
 #[derive(FromPrimitive, Debug, PartialEq)]
 pub enum MessageType {
     SSH_MSG_DISCONNECT = 1,

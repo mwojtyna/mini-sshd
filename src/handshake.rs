@@ -14,8 +14,33 @@ use crate::{
     utils::packet_too_short,
 };
 
+pub struct Algorithms {
+    pub kex_algorithms: Vec<String>,
+    pub server_host_key_algorithms: Vec<String>,
+    pub encryption_algorithms_client_to_server: Vec<String>,
+    pub encryption_algorithms_server_to_client: Vec<String>,
+    pub mac_algorithms_client_to_server: Vec<String>,
+    pub mac_algorithms_server_to_client: Vec<String>,
+    pub compression_algorithms_client_to_server: Vec<String>,
+    pub compression_algorithms_server_to_client: Vec<String>,
+    pub languages_client_to_server: Vec<String>,
+    pub languages_server_to_client: Vec<String>,
+}
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const IDENT_STRING: &str = formatcp!("SSH-2.0-minisshd_{}\r\n", VERSION);
+const SERVER_ALGORITHMS: Algorithms = Algorithms {
+    kex_algorithms: vec![],
+    server_host_key_algorithms: vec![],
+    encryption_algorithms_client_to_server: vec![],
+    encryption_algorithms_server_to_client: vec![],
+    mac_algorithms_client_to_server: vec![],
+    mac_algorithms_server_to_client: vec![],
+    compression_algorithms_client_to_server: vec![],
+    compression_algorithms_server_to_client: vec![],
+    languages_client_to_server: vec![],
+    languages_server_to_client: vec![],
+};
 
 // RFC 4253 § 4.2
 pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
@@ -35,7 +60,7 @@ pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
 }
 
 // RFC 4253 § 7
-pub fn key_exchange(stream: &mut TcpStream) -> Result<()> {
+pub fn key_exchange(stream: &mut TcpStream) -> Result<Algorithms> {
     debug!("--- BEGIN KEY EXCHANGE ---");
     let payload = parse_packet(stream)?;
     let mut reader = payload.iter();
@@ -65,16 +90,16 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<()> {
         server_host_key_algorithms
     );
 
-    let encrytion_algorithms_client_to_server = parse_name_list(&mut reader)?;
+    let encryption_algorithms_client_to_server = parse_name_list(&mut reader)?;
     debug!(
-        "encrytion_algorithms_client_to_server = {:?}",
-        encrytion_algorithms_client_to_server
+        "encryption_algorithms_client_to_server = {:?}",
+        encryption_algorithms_client_to_server
     );
 
-    let encrytion_algorithms_server_to_client = parse_name_list(&mut reader)?;
+    let encryption_algorithms_server_to_client = parse_name_list(&mut reader)?;
     debug!(
-        "encrytion_algorithms_server_to_client = {:?}",
-        encrytion_algorithms_server_to_client
+        "encryption_algorithms_server_to_client = {:?}",
+        encryption_algorithms_server_to_client
     );
 
     let mac_algorithms_client_to_server = parse_name_list(&mut reader)?;
@@ -123,5 +148,16 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<()> {
     let _reserved = reader.take(4).collect::<Vec<&u8>>();
 
     debug!("--- END KEY EXCHANGE ---");
-    Ok(())
+    Ok(Algorithms {
+        kex_algorithms,
+        server_host_key_algorithms,
+        encryption_algorithms_client_to_server,
+        encryption_algorithms_server_to_client,
+        mac_algorithms_client_to_server,
+        mac_algorithms_server_to_client,
+        compression_algorithms_client_to_server,
+        compression_algorithms_server_to_client,
+        languages_client_to_server,
+        languages_server_to_client,
+    })
 }

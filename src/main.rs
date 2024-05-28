@@ -55,7 +55,7 @@ fn handle_client(mut stream: TcpStream) -> Result<()> {
     );
 
     ident_exchange(&mut stream)?;
-    key_exchange(&mut stream)?;
+    let client_algorithms = key_exchange(&mut stream)?;
 
     Ok(())
 }
