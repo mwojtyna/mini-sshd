@@ -1,15 +1,14 @@
 use std::{
     io::{BufReader, Read},
     net::TcpStream,
-    slice::Iter,
 };
 
 use anyhow::{anyhow, Context, Result};
-use log::trace;
+use log::{log_enabled, trace, Level};
 
 // RFC 4253 § 6
-pub fn parse_packet(stream: &TcpStream) -> Result<Vec<u8>> {
-    trace!("-- BEGIN PACKET PARSING --");
+pub fn decode_packet(stream: &TcpStream) -> Result<Vec<u8>> {
+    trace!("-- BEGIN PACKET DECODING --");
 
     let mut reader = BufReader::new(stream);
 
@@ -27,12 +26,15 @@ pub fn parse_packet(stream: &TcpStream) -> Result<Vec<u8>> {
     let padding_length = padding_length_bytes[0];
     trace!("padding_length = {} bytes", padding_length);
 
-    let n1 = packet_length - (padding_length as u32) - 1;
+    let n1: u32 = packet_length - (padding_length as u32) - 1;
     let mut payload = vec![0u8; n1 as usize];
     reader
         .read_exact(&mut payload)
         .with_context(|| "Failed reading payload")?;
-    trace!("payload = {:?}", String::from_utf8_lossy(&payload));
+
+    if log_enabled!(Level::Trace) {
+        trace!("payload = {:?}", String::from_utf8_lossy(&payload));
+    }
 
     let mut random_padding = vec![0u8; padding_length as usize];
     reader
@@ -45,33 +47,33 @@ pub fn parse_packet(stream: &TcpStream) -> Result<Vec<u8>> {
     let bytes_left = packet_length - 1 - payload.len() as u32 - padding_length as u32;
     if bytes_left != 0 {
         return Err(anyhow!(
-            "Didn't parse entire packet, {} bytes left",
+            "Didn't decode entire packet, {} bytes left",
             bytes_left
         ));
     }
 
-    trace!("-- END PACKET PARSING --");
+    trace!("-- END PACKET DECODING --");
     Ok(payload)
 }
 
 // RFC 4251 § 5
 /// * `iter` - iterator where `iter.next()` will return the first byte of the name-list
-pub fn parse_name_list(iter: &mut Iter<u8>) -> Result<Vec<String>> {
-    trace!("-- BEGIN NAME-LIST PARSING --");
+pub fn decode_name_list(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<String>> {
+    trace!("-- BEGIN NAME-LIST DECODING --");
 
-    let length_bytes = iter.by_ref().take(4).copied().collect::<Vec<u8>>();
+    let length_bytes = iter.take(4).collect::<Vec<u8>>();
     let length = u8_array_to_u32(length_bytes.as_slice())?;
     trace!("length = {} bytes", length);
 
-    let value_bytes = iter.take(length as usize).copied().collect::<Vec<u8>>();
+    let value_bytes = iter.take(length as usize).collect::<Vec<u8>>();
     let value =
-        String::from_utf8(value_bytes).with_context(|| "Failed to parse name-list to string")?;
+        String::from_utf8(value_bytes).with_context(|| "Failed to decode name-list to string")?;
     trace!("value = {}", value);
 
     let name_list = value.split(',').map(String::from).collect::<Vec<String>>();
     trace!("name_list = {:?}", name_list);
+    trace!("-- END NAME-LIST DECODING --");
 
-    trace!("-- END NAME-LIST PARSING --");
     Ok(name_list)
 }
 
