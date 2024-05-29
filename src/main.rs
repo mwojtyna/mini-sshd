@@ -4,8 +4,10 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use decoding::{decode_packet, u8_to_MessageType};
 use handshake::{ident_exchange, key_exchange};
-use log::{debug, error};
+use log::{debug, error, trace, warn};
+use types::MessageType;
 
 mod decoding;
 mod encoding;
@@ -28,7 +30,7 @@ fn connect() -> Result<()> {
     let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))?;
 
     for client in listener.incoming() {
-        let client = client.with_context(|| "Client is invalid")?;
+        let client = client.context("Client is invalid")?;
         let client_addr = client.peer_addr().unwrap();
 
         let handle = thread::spawn::<_, Result<()>>(|| {
@@ -57,9 +59,10 @@ fn handle_client(mut stream: TcpStream) -> Result<()> {
         stream.peer_addr().unwrap()
     );
 
-    ident_exchange(&mut stream).with_context(|| "Failed during ident exchange")?;
-    let _client_algorithms =
-        key_exchange(&mut stream).with_context(|| "Failed during key exchange")?;
+    ident_exchange(&mut stream).context("Failed during ident exchange")?;
+
+    // First request after ident exchange is always key exchange
+    let _client_algorithms = key_exchange(&mut stream).context("Failed during key exchange")?;
 
     Ok(())
 }

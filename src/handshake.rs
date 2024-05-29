@@ -6,10 +6,9 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use const_format::formatcp;
 use log::{debug, trace};
-use num_traits::FromPrimitive;
 
 use crate::{
-    decoding::{decode_name_list, decode_packet, u8_to_bool},
+    decoding::{decode_name_list, decode_packet, u8_to_MessageType, u8_to_bool},
     encoding::{bool_to_u8, encode_name_list, encode_packet},
     types::MessageType,
     utils::packet_too_short,
@@ -40,7 +39,7 @@ pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
     let mut client_ident = String::new();
     reader
         .read_line(&mut client_ident)
-        .with_context(|| "Failed reading client_ident")?;
+        .context("Failed reading client_ident")?;
     client_ident = client_ident.lines().next().unwrap().to_string();
     debug!("client = {:?}", client_ident);
 
@@ -53,18 +52,14 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<Algorithms> {
     debug!("--- BEGIN KEY EXCHANGE ---");
 
     debug!("Decoding client algorithms...");
-    let payload = decode_packet(stream).with_context(|| "Failed decoding key exchange packet")?;
+    let payload = decode_packet(stream).context("Failed decoding key exchange packet")?;
     let mut reader = payload.into_iter();
     let reader = reader.by_ref();
 
-    if let Some(msg_type) = reader.next() {
-        if let Some(msg_type_enum) = MessageType::from_u8(msg_type) {
-            trace!("msg_type = {:?}", msg_type_enum);
-            if msg_type_enum != MessageType::SSH_MSG_KEXINIT {
-                return Err(anyhow!("Expected SSH_MSG_KEXINIT, got {:?}", msg_type_enum));
-            }
-        } else {
-            return Err(anyhow!("Failed casting msg_type"));
+    if let Some(msg_type_u8) = reader.next() {
+        let msg_type = u8_to_MessageType(msg_type_u8)?;
+        if msg_type != MessageType::SSH_MSG_KEXINIT {
+            return Err(anyhow!("Expected SSH_MSG_KEXINIT, got {:?}", msg_type));
         }
     } else {
         return packet_too_short("msg_type");
@@ -74,16 +69,15 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<Algorithms> {
     trace!("cookie = {:?}", cookie);
 
     let client_algorithms =
-        decode_client_algorithms(reader).with_context(|| "Failed reading client algorithms")?;
+        decode_client_algorithms(reader).context("Failed reading client algorithms")?;
 
     let server_algorithms_payload = encode_server_algorithms(&get_server_algorithms());
-    let packet =
-        encode_packet(&server_algorithms_payload).with_context(|| "Failed encoding packet")?;
+    let packet = encode_packet(&server_algorithms_payload).context("Failed encoding packet")?;
 
     debug!("Sending server algorithms...");
     stream
         .write_all(&packet)
-        .with_context(|| "Failed writing server algorithms packet")?;
+        .context("Failed writing server algorithms packet")?;
 
     debug!("--- END KEY EXCHANGE ---");
     Ok(client_algorithms)

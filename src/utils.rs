@@ -9,7 +9,7 @@ pub fn packet_too_short<T>(var_name: &str) -> Result<T> {
 }
 
 pub fn random_array(len: usize) -> Result<Vec<u8>> {
-    let mut out = vec![0u8; len];
+    let mut out = vec![0; len];
     let sr = SystemRandom::new();
 
     if sr.fill(out.as_mut_slice()).is_err() {
