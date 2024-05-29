@@ -7,7 +7,7 @@ use std::{
 use anyhow::{Context, Result};
 use const_format::formatcp;
 use decoding::{decode_packet, u8_to_MessageType};
-use encoding::encode_packet;
+use encoding::{encode_packet, u32_to_u8_array};
 use handlers::key_exchange::key_exchange;
 use log::{debug, error, trace};
 use types::{DisconnectReason, MessageType};
@@ -112,22 +112,34 @@ pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
 fn handle_packet(stream: &mut TcpStream) -> Result<Option<DisconnectReason>> {
     let payload = decode_packet(stream)?;
     let msg_type = u8_to_MessageType(payload[0])?;
-    trace!("Received message type: {:?}", msg_type);
+    trace!("Received message of type = {:?}", msg_type);
 
     match msg_type {
         MessageType::SSH_MSG_DISCONNECT => {
-            return Ok(Some(DisconnectReason::SSH_DISCONNECT_BY_APPLICATION));
+            return Ok(Some(DisconnectReason::SSH_DISCONNECT_BY_APPLICATION))
         }
+        MessageType::SSH_MSG_IGNORE => { /* RFC 4253 § 11.2 - Must be ignored */ }
+        MessageType::SSH_MSG_UNIMPLEMENTED => { /* RFC 4253 § 11.4 - Must be ignored */ }
+        MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
+
         MessageType::SSH_MSG_KEXINIT => {
             key_exchange(stream)?;
         }
+
         _ => {
             error!(
-                "Unhandled message type, exiting.\ntype: {:?}\npayload: {:?}",
+                "Unhandled message type.\ntype: {:?}\npayload: {:?}",
                 msg_type,
                 String::from_utf8_lossy(&payload)
             );
-            return Ok(Some(DisconnectReason::SSH_DISCONNECT_PROTOCOL_ERROR));
+
+            let payload = [
+                vec![MessageType::SSH_MSG_UNIMPLEMENTED as u8],
+                u32_to_u8_array(0).to_vec(), // TODO: Packet sequence number
+            ]
+            .concat();
+            let packet = encode_packet(&payload)?;
+            stream.write_all(&packet)?;
         }
     }
 
