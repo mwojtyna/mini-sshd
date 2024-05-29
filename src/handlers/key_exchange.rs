@@ -1,19 +1,15 @@
-use std::{
-    io::{BufRead, BufReader, Write},
-    net::TcpStream,
-};
+use std::{io::Write, net::TcpStream};
 
 use anyhow::{anyhow, Context, Result};
-use const_format::formatcp;
 use log::{debug, trace};
 
 use crate::{
-    decoding::{decode_name_list, decode_packet, u8_to_MessageType, u8_to_bool},
-    encoding::{bool_to_u8, encode_name_list, encode_packet},
+    decoding::{decode_name_list, decode_packet, packet_too_short, u8_to_MessageType, u8_to_bool},
+    encoding::{bool_to_u8, encode_name_list, encode_packet, random_array},
     types::MessageType,
-    utils::packet_too_short,
 };
 
+#[derive(Debug)]
 pub struct Algorithms {
     pub kex_algorithms: Vec<String>,
     pub server_host_key_algorithms: Vec<String>,
@@ -25,26 +21,6 @@ pub struct Algorithms {
     pub compression_algorithms_server_to_client: Vec<String>,
     pub languages_client_to_server: Vec<String>,
     pub languages_server_to_client: Vec<String>,
-}
-
-const VERSION: &str = env!("CARGO_PKG_VERSION");
-const IDENT_STRING: &str = formatcp!("SSH-2.0-minisshd_{}\r\n", VERSION);
-
-// RFC 4253 § 4.2
-pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
-    debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
-    stream.write_all(IDENT_STRING.as_bytes())?;
-
-    let mut reader = BufReader::new(stream);
-    let mut client_ident = String::new();
-    reader
-        .read_line(&mut client_ident)
-        .context("Failed reading client_ident")?;
-    client_ident = client_ident.lines().next().unwrap().to_string();
-    debug!("client = {:?}", client_ident);
-
-    debug!("--- END IDENTIFICATION EXCHANGE ---");
-    Ok(())
 }
 
 // RFC 4253 § 7
@@ -71,10 +47,12 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<Algorithms> {
     let client_algorithms =
         decode_client_algorithms(reader).context("Failed reading client algorithms")?;
 
-    let server_algorithms_payload = encode_server_algorithms(&get_server_algorithms());
-    let packet = encode_packet(&server_algorithms_payload).context("Failed encoding packet")?;
+    let server_algorithms = &get_server_algorithms();
+    let server_algorithms_payload = encode_server_algorithms(server_algorithms);
+    let packet = encode_packet(&server_algorithms_payload?).context("Failed encoding packet")?;
 
     debug!("Sending server algorithms...");
+    debug!("server_algorithms = {:#?}", server_algorithms);
     stream
         .write_all(&packet)
         .context("Failed writing server algorithms packet")?;
@@ -85,61 +63,15 @@ pub fn key_exchange(stream: &mut TcpStream) -> Result<Algorithms> {
 
 fn decode_client_algorithms(reader: &mut impl Iterator<Item = u8>) -> Result<Algorithms> {
     let kex_algorithms = decode_name_list(reader)?;
-    debug!("kex_algorithms = {:?}", kex_algorithms);
-
     let server_host_key_algorithms = decode_name_list(reader)?;
-    debug!(
-        "server_host_key_algorithms = {:?}",
-        server_host_key_algorithms
-    );
-
     let encryption_algorithms_client_to_server = decode_name_list(reader)?;
-    debug!(
-        "encryption_algorithms_client_to_server = {:?}",
-        encryption_algorithms_client_to_server
-    );
-
     let encryption_algorithms_server_to_client = decode_name_list(reader)?;
-    debug!(
-        "encryption_algorithms_server_to_client = {:?}",
-        encryption_algorithms_server_to_client
-    );
-
     let mac_algorithms_client_to_server = decode_name_list(reader)?;
-    debug!(
-        "mac_algorithms_client_to_server = {:?}",
-        mac_algorithms_client_to_server
-    );
-
     let mac_algorithms_server_to_client = decode_name_list(reader)?;
-    debug!(
-        "mac_algorithms_server_to_client = {:?}",
-        mac_algorithms_server_to_client
-    );
-
     let compression_algorithms_client_to_server = decode_name_list(reader)?;
-    debug!(
-        "compression_algorithms_client_to_server = {:?}",
-        compression_algorithms_client_to_server
-    );
-
     let compression_algorithms_server_to_client = decode_name_list(reader)?;
-    debug!(
-        "compression_algorithms_server_to_client = {:?}",
-        compression_algorithms_server_to_client
-    );
-
     let languages_client_to_server = decode_name_list(reader)?;
-    debug!(
-        "languages_client_to_server = {:?}",
-        languages_client_to_server
-    );
-
     let languages_server_to_client = decode_name_list(reader)?;
-    debug!(
-        "languages_server_to_client = {:?}",
-        languages_server_to_client
-    );
 
     if let Some(first_kex_packet_follows_u8) = reader.next() {
         let first_kex_packet_follows = u8_to_bool(first_kex_packet_follows_u8)?;
@@ -150,7 +82,7 @@ fn decode_client_algorithms(reader: &mut impl Iterator<Item = u8>) -> Result<Alg
 
     let _reserved = reader.take(4).collect::<Vec<u8>>();
 
-    Ok(Algorithms {
+    let client_algorithms = Algorithms {
         kex_algorithms,
         server_host_key_algorithms,
         encryption_algorithms_client_to_server,
@@ -161,12 +93,15 @@ fn decode_client_algorithms(reader: &mut impl Iterator<Item = u8>) -> Result<Alg
         compression_algorithms_server_to_client,
         languages_client_to_server,
         languages_server_to_client,
-    })
+    };
+    debug!("client_algorithms = {:#?}", client_algorithms);
+
+    Ok(client_algorithms)
 }
 
-fn encode_server_algorithms(algorithms: &Algorithms) -> Vec<u8> {
+fn encode_server_algorithms(algorithms: &Algorithms) -> Result<Vec<u8>> {
     let msg_type = vec![MessageType::SSH_MSG_KEXINIT as u8];
-    let cookie = vec![0; 16]; // TODO: Random
+    let cookie = random_array(16)?;
     let kex_algorithms = encode_name_list(&algorithms.kex_algorithms);
     let server_host_key_algorithms = encode_name_list(&algorithms.server_host_key_algorithms);
     let encryption_algorithms_client_to_server =
@@ -186,7 +121,7 @@ fn encode_server_algorithms(algorithms: &Algorithms) -> Vec<u8> {
     let first_kex_packet_follows = vec![bool_to_u8(false)];
     let reserved = vec![0; 4];
 
-    [
+    Ok([
         msg_type,
         cookie,
         kex_algorithms,
@@ -202,20 +137,20 @@ fn encode_server_algorithms(algorithms: &Algorithms) -> Vec<u8> {
         first_kex_packet_follows,
         reserved,
     ]
-    .concat()
+    .concat())
 }
 
 fn get_server_algorithms() -> Algorithms {
     Algorithms {
-        kex_algorithms: vec![],
-        server_host_key_algorithms: vec![],
-        encryption_algorithms_client_to_server: vec![],
-        encryption_algorithms_server_to_client: vec![],
-        mac_algorithms_client_to_server: vec![],
-        mac_algorithms_server_to_client: vec![],
+        kex_algorithms: vec!["sntrup761x25519-sha512@openssh.com".to_owned()],
+        server_host_key_algorithms: vec!["ssh-ed25519-cert-v01@openssh.com".to_owned()],
+        encryption_algorithms_client_to_server: vec!["chacha20-poly1305@openssh.com".to_owned()],
+        encryption_algorithms_server_to_client: vec!["chacha20-poly1305@openssh.com".to_owned()],
+        mac_algorithms_client_to_server: vec!["hmac-sha2-256-etm@openssh.com".to_owned()],
+        mac_algorithms_server_to_client: vec!["hmac-sha2-256-etm@openssh.com".to_owned()],
         compression_algorithms_client_to_server: vec!["none".to_owned()],
         compression_algorithms_server_to_client: vec!["none".to_owned()],
-        languages_client_to_server: vec![],
-        languages_server_to_client: vec![],
+        languages_client_to_server: vec!["".to_owned()],
+        languages_server_to_client: vec!["".to_owned()],
     }
 }

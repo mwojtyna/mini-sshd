@@ -102,3 +102,10 @@ pub fn u8_to_bool(value: u8) -> Result<bool> {
 pub fn u8_to_MessageType(value: u8) -> Result<MessageType> {
     MessageType::from_u8(value).context(format!("Failed to cast {} into MessageType", value))
 }
+
+pub fn packet_too_short<T>(var_name: &str) -> Result<T> {
+    Err(anyhow!(
+        "Packet too short - '{}' could not be read",
+        var_name
+    ))
+}
