@@ -7,9 +7,10 @@ use std::{
 use anyhow::{Context, Result};
 use const_format::formatcp;
 use decoding::{decode_packet, u8_to_MessageType};
+use encoding::encode_packet;
 use handlers::key_exchange::key_exchange;
-use log::{debug, error, trace, warn};
-use types::MessageType;
+use log::{debug, error, trace};
+use types::{DisconnectReason, MessageType};
 
 mod decoding;
 mod encoding;
@@ -67,7 +68,20 @@ fn handle_client(mut stream: TcpStream) -> Result<()> {
 
     loop {
         let disconnect = handle_packet(&mut stream).context("Failed handling packet")?;
-        if disconnect {
+        if let Some(reason) = disconnect {
+            debug!("Sending disconnect packet, reason = {:?}", reason);
+
+            let payload = &[
+                vec![MessageType::SSH_MSG_DISCONNECT as u8],
+                vec![reason as u8],
+                b"".to_vec(),
+                b"en".to_vec(),
+            ]
+            .concat();
+
+            let packet = encode_packet(payload)?;
+            stream.write_all(&packet)?;
+
             break;
         }
     }
@@ -95,21 +109,27 @@ pub fn ident_exchange(stream: &mut TcpStream) -> Result<()> {
     Ok(())
 }
 
-/// # Returns
-/// `true` if should disconnect, `false` if not
-fn handle_packet(stream: &mut TcpStream) -> Result<bool> {
+fn handle_packet(stream: &mut TcpStream) -> Result<Option<DisconnectReason>> {
     let payload = decode_packet(stream)?;
     let msg_type = u8_to_MessageType(payload[0])?;
     trace!("Received message type: {:?}", msg_type);
 
     match msg_type {
         MessageType::SSH_MSG_DISCONNECT => {
-            return Ok(true);
+            return Ok(Some(DisconnectReason::SSH_DISCONNECT_BY_APPLICATION));
         }
         MessageType::SSH_MSG_KEXINIT => {
             key_exchange(stream)?;
         }
-        _ => warn!("Unhandled message type: {:?}", msg_type),
+        _ => {
+            error!(
+                "Unhandled message type, exiting.\ntype: {:?}\npayload: {:?}",
+                msg_type,
+                String::from_utf8_lossy(&payload)
+            );
+            return Ok(Some(DisconnectReason::SSH_DISCONNECT_PROTOCOL_ERROR));
+        }
     }
-    Ok(false)
+
+    Ok(None)
 }
