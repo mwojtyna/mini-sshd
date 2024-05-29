@@ -1,9 +1,11 @@
-use std::net::{TcpListener, TcpStream};
+use std::{
+    net::{TcpListener, TcpStream},
+    thread,
+};
 
 use anyhow::{Context, Result};
 use handshake::{ident_exchange, key_exchange};
-use log::info;
-use utils::log_error;
+use log::{debug, error};
 
 mod decoding;
 mod encoding;
@@ -15,28 +17,44 @@ const PORT: usize = 6969;
 
 fn main() -> Result<()> {
     env_logger::builder().format_target(false).init();
-    connect().unwrap_or_else(log_error);
+    if let Err(err) = connect() {
+        error!("{:?}", err);
+    }
 
     Ok(())
 }
 
 fn connect() -> Result<()> {
-    let addr = format!("127.0.0.1:{}", PORT);
-    let listener = TcpListener::bind(addr.clone())?;
+    let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))?;
 
     for client in listener.incoming() {
         let client = client.with_context(|| "Client is invalid")?;
-        let addr = client.peer_addr().unwrap();
-        handle_client(client).with_context(|| format!("Error while handling {}", addr))?;
+        let client_addr = client.peer_addr().unwrap();
+
+        let handle = thread::spawn::<_, Result<()>>(|| {
+            handle_client(client)?;
+            Ok(())
+        });
+
+        match handle.join() {
+            Ok(val) => match val {
+                Ok(()) => debug!("Thread for address {} finished successfully", client_addr),
+                Err(err) => error!(
+                    "Thread for address {} finished with error: {:?}",
+                    client_addr, err
+                ),
+            },
+            Err(err) => error!("Thread for address {} panicked: {:?}", client_addr, err),
+        }
     }
 
     Ok(())
 }
 
 fn handle_client(mut stream: TcpStream) -> Result<()> {
-    info!(
-        "Spawned new thread for client on address '{}'",
-        stream.peer_addr()?
+    debug!(
+        "Spawned new thread for client on address {}",
+        stream.peer_addr().unwrap()
     );
 
     ident_exchange(&mut stream).with_context(|| "Failed during ident exchange")?;
