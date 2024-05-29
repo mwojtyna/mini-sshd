@@ -7,15 +7,20 @@ use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
 
-use crate::types::MessageType;
+use crate::{encoding::PACKET_LENGTH_SIZE, types::MessageType};
+
+pub struct DecodedPacket {
+    pub payload: Vec<u8>,
+    pub entire_packet_length: u32,
+}
 
 // RFC 4253 § 6
-pub fn decode_packet(stream: &TcpStream) -> Result<Vec<u8>> {
+pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
     trace!("-- BEGIN PACKET DECODING --");
 
     let mut reader = BufReader::new(stream);
 
-    let mut packet_length_bytes = [0u8; 4];
+    let mut packet_length_bytes = [0u8; PACKET_LENGTH_SIZE];
     reader
         .read_exact(&mut packet_length_bytes)
         .context("Failed reading packet_length")?;
@@ -47,7 +52,7 @@ pub fn decode_packet(stream: &TcpStream) -> Result<Vec<u8>> {
 
     // TODO: mac (initially no message authentication has been negotiated, so mac isn't added)
 
-    let bytes_left = packet_length - 1 - payload.len() as u32 - padding_length as u32;
+    let bytes_left = packet_length - 1 - n1 as u32 - padding_length as u32; // TODO: mac
     if bytes_left != 0 {
         return Err(anyhow!(
             "Didn't decode entire packet, {} bytes left",
@@ -56,7 +61,10 @@ pub fn decode_packet(stream: &TcpStream) -> Result<Vec<u8>> {
     }
 
     trace!("-- END PACKET DECODING --");
-    Ok(payload)
+    Ok(DecodedPacket {
+        payload,
+        entire_packet_length: packet_length + PACKET_LENGTH_SIZE as u32, // TODO: mac
+    })
 }
 
 // RFC 4251 § 5
@@ -64,7 +72,7 @@ pub fn decode_packet(stream: &TcpStream) -> Result<Vec<u8>> {
 pub fn decode_name_list(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<String>> {
     trace!("-- BEGIN NAME-LIST DECODING --");
 
-    let length_bytes = iter.take(4).collect::<Vec<u8>>();
+    let length_bytes = iter.take(PACKET_LENGTH_SIZE).collect::<Vec<u8>>();
     let length = u8_array_to_u32(length_bytes.as_slice())?;
     trace!("length = {} bytes", length);
 

@@ -1,9 +1,11 @@
+use std::mem::size_of;
+
 use anyhow::{anyhow, Result};
 use log::{log_enabled, trace, Level};
 use ring::rand::{SecureRandom, SystemRandom};
 
-const PACKET_LENGTH_SIZE: usize = 4;
-const PADDING_LENGTH_SIZE: usize = 1;
+pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
+pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
 const MIN_PADDING: u8 = 4;
 
 // RFC 4253 § 6

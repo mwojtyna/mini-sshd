@@ -54,7 +54,7 @@ pub enum MessageType {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(FromPrimitive, Debug, PartialEq)]
+#[derive(FromPrimitive, Debug, PartialEq, Clone)]
 pub enum DisconnectReason {
     SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT = 1,
     SSH_DISCONNECT_PROTOCOL_ERROR = 2,
