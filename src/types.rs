@@ -17,7 +17,8 @@ pub enum MessageType {
     SSH_MSG_NEWKEYS = 21,
 
     // 30 to 49 - Key exchange method specific (numbers can be reused for different authentication methods)
-    SSH_MSG_KEX_ECDH_REPLY = 30,
+    SSH_MSG_KEX_ECDH_INIT = 30,
+    SSH_MSG_KEX_ECDH_REPLY = 31,
 
     // User authentication protocol:
     // 50 to 59 - User authentication generic

@@ -5,6 +5,7 @@ use const_format::formatcp;
 use log::{debug, error};
 use session::Session;
 
+mod crypto;
 mod decoding;
 mod encoding;
 mod session;

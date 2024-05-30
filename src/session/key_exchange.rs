@@ -2,8 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, trace};
 
 use crate::{
+    crypto::random_array,
     decoding::{decode_name_list, decode_packet, packet_too_short, u8_to_MessageType, u8_to_bool},
-    encoding::{bool_to_u8, encode_name_list, encode_packet, random_array},
+    encoding::{bool_to_u8, encode_name_list, encode_packet},
     session::Session,
     types::MessageType,
 };

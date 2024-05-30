@@ -1,8 +1,9 @@
 use std::mem::size_of;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use log::{log_enabled, trace, Level};
-use ring::rand::{SecureRandom, SystemRandom};
+
+use crate::crypto::random_array;
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
@@ -73,16 +74,5 @@ pub fn bool_to_u8(value: bool) -> u8 {
     match value {
         false => 0,
         true => 1,
-    }
-}
-
-pub fn random_array(len: usize) -> Result<Vec<u8>> {
-    let mut out = vec![0; len];
-    let sr = SystemRandom::new();
-
-    if sr.fill(out.as_mut_slice()).is_err() {
-        Err(anyhow!("Failed generating random array"))
-    } else {
-        Ok(out)
     }
 }
