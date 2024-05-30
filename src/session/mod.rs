@@ -49,8 +49,10 @@ impl Session {
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
             if let Some(reason) = disconnect {
-                debug!("Sending disconnect packet, reason = {:?}", reason);
-                self.disconnect(reason)?;
+                if reason != DisconnectReason::SSH_DISCONNECT_BY_APPLICATION {
+                    debug!("Sending disconnect packet, reason = {:?}", reason);
+                    self.disconnect(reason)?;
+                }
                 break;
             }
         }
@@ -126,6 +128,8 @@ impl Session {
                 self.key_exchange()?;
             }
 
+            MessageType::SSH_MSG_KEX_ECDH_INIT => {}
+
             _ => {
                 error!(
                     "Unhandled message type.\ntype: {:?}\npayload: {:?}",
@@ -155,6 +159,7 @@ impl Session {
         Ok(())
     }
 
+    // RFC 4253 § 11.1
     fn disconnect(&mut self, reason: DisconnectReason) -> Result<()> {
         let payload = &[
             vec![MessageType::SSH_MSG_DISCONNECT as u8],
