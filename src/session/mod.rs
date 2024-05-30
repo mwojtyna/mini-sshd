@@ -20,7 +20,7 @@ pub struct Session {
     stream: TcpStream,
     outgoing_packet_sequence: u32,
     incoming_packet_sequence: u32,
-    client_algorithms: Algorithms,
+    algorithms: Algorithms,
 }
 
 impl Session {
@@ -29,7 +29,7 @@ impl Session {
             outgoing_packet_sequence: 0,
             incoming_packet_sequence: 0,
             stream,
-            client_algorithms: Algorithms::default(),
+            algorithms: Algorithms::default(),
         }
     }
 
@@ -44,7 +44,7 @@ impl Session {
             .context("Failed during ident exchange")?;
 
         // First request after ident exchange is always key exchange
-        self.client_algorithms = self.key_exchange().context("Failed during key exchange")?;
+        self.algorithms = self.key_exchange().context("Failed during key exchange")?;
 
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
