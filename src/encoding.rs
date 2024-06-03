@@ -3,10 +3,12 @@ use std::mem::size_of;
 use anyhow::Result;
 use log::{log_enabled, trace, Level};
 
-use crate::crypto::random_array;
+use crate::crypto::generate_random_array;
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
+pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
+
 const MIN_PADDING: u8 = 4;
 
 // RFC 4253 § 6
@@ -22,16 +24,12 @@ pub fn encode_packet(payload: &[u8]) -> Result<Vec<u8>> {
         MIN_PADDING,
     );
     let packet_length: u32 = (PADDING_LENGTH_SIZE + payload.len() + padding_length as usize) as u32;
-    let random_padding = random_array(padding_length.into())?;
+    let random_padding = generate_random_array(padding_length.into())?;
 
     trace!("packet_length = {} bytes", packet_length);
     trace!("padding_length = {} bytes", padding_length);
     if log_enabled!(Level::Trace) {
-        trace!(
-            "payload = {:?}, length = {}",
-            String::from_utf8_lossy(payload),
-            payload.len()
-        );
+        trace!("payload = {:?}", String::from_utf8_lossy(payload));
     }
     trace!("random_padding = {:?}", random_padding);
 
@@ -64,6 +62,22 @@ pub fn encode_name_list(names: &[String]) -> Vec<u8> {
 
     trace!("-- END NAME-LIST ENCODING --");
     name_list
+}
+
+// RFC 4251 § 5
+pub fn encode_string(data: &[u8]) -> Vec<u8> {
+    trace!("-- BEGIN STRING ENCODING --");
+    trace!("length = {}", data.len());
+    trace!("data = {:?}", data);
+
+    let mut string = Vec::with_capacity(STRING_LENGTH_SIZE + data.len());
+    let length_bytes = u32_to_u8_array(data.len() as u32);
+    string.extend_from_slice(&length_bytes);
+    string.extend_from_slice(data);
+    trace!("string = {:?}", string);
+
+    trace!("-- END STRING ENCODING --");
+    string
 }
 
 pub fn u32_to_u8_array(value: u32) -> [u8; 4] {

@@ -7,7 +7,10 @@ use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
 
-use crate::{encoding::PACKET_LENGTH_SIZE, types::MessageType};
+use crate::{
+    encoding::{PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
+    types::MessageType,
+};
 
 pub struct DecodedPacket {
     pub payload: Vec<u8>,
@@ -80,11 +83,25 @@ pub fn decode_name_list(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<String
     let value = String::from_utf8(value_bytes).context("Failed to decode name-list to string")?;
     trace!("value = {}", value);
 
-    let name_list = value.split(',').map(String::from).collect::<Vec<String>>();
+    let name_list = value.split(',').map(String::from).collect();
     trace!("name_list = {:?}", name_list);
     trace!("-- END NAME-LIST DECODING --");
 
     Ok(name_list)
+}
+
+pub fn decode_string(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<u8>> {
+    trace!("-- BEGIN STRING DECODING --");
+
+    let length_bytes = iter.take(STRING_LENGTH_SIZE).collect::<Vec<u8>>();
+    let length = u8_array_to_u32(&length_bytes)?;
+    trace!("length = {}", length);
+
+    let string = iter.take(length as usize).collect();
+    trace!("string = {:?}", string);
+
+    trace!("-- END STRING DECODING --");
+    Ok(string)
 }
 
 pub fn u8_array_to_u32(array: &[u8]) -> Result<u32> {
