@@ -34,16 +34,16 @@ pub fn compute_shared_secret(peer_key: &[u8]) -> Result<SharedSecret> {
         eph_pair
             .public_key()
             .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)?;
-    let eph_pair = PKey::from_ec_key(eph_pair)?;
 
+    let eph_pair = PKey::from_ec_key(eph_pair)?;
     let mut deriver = Deriver::new(&eph_pair)?;
     deriver.set_peer_ex(&peer_key, true)?;
 
-    let shared_secret = deriver.derive_to_vec()?;
-    let hashed = hash(MessageDigest::sha256(), &shared_secret)?.to_vec();
+    let secret = deriver.derive_to_vec()?;
+    let hashed_secret = hash(MessageDigest::sha256(), &secret)?.to_vec();
 
     Ok(SharedSecret {
-        secret: hashed,
+        secret: hashed_secret,
         eph_public_key,
     })
 }

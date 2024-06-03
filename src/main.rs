@@ -1,7 +1,6 @@
 use std::{net::TcpListener, thread};
 
 use anyhow::{Context, Result};
-use const_format::formatcp;
 use crypto::{generate_host_key, HostKey};
 use log::{debug, error};
 use session::{algorithm_negotiation::AlgorithmNegotiation, Session};
@@ -12,7 +11,6 @@ mod encoding;
 mod session;
 mod types;
 
-pub const SERVER_IDENT: &str = formatcp!("SSH-2.0-minisshd_{}", VERSION);
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const PORT: usize = 6969;
 
@@ -56,7 +54,7 @@ fn connect() -> Result<()> {
             languages_server_to_client: vec!["".to_owned()],
         },
         host_key: generate_host_key().context("Failed creating host key")?,
-        ident_string: SERVER_IDENT.to_owned(),
+        ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
     };
 
     if cfg!(debug_assertions) {

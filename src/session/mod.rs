@@ -11,7 +11,7 @@ use crate::{
     decoding::{decode_packet, u8_to_MessageType},
     encoding::{encode_packet, u32_to_u8_array},
     types::{DisconnectReason, MessageType},
-    ServerConfig, SERVER_IDENT,
+    ServerConfig,
 };
 
 pub mod algorithm_negotiation;
@@ -86,7 +86,7 @@ impl Session {
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self) -> Result<String> {
         debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
-        self.send_packet(format!("{}\r\n", SERVER_IDENT).as_bytes())?;
+        self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
 
         let mut reader = BufReader::new(&mut self.stream);
         let mut client_ident = String::new();
