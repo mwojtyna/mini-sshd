@@ -2,6 +2,7 @@ use std::mem::size_of;
 
 use anyhow::Result;
 use log::{log_enabled, trace, Level};
+use openssl::bn::BigNumRef;
 
 use crate::crypto::generate_random_array;
 
@@ -78,6 +79,27 @@ pub fn encode_string(data: &[u8]) -> Vec<u8> {
 
     trace!("-- END STRING ENCODING --");
     string
+}
+
+// RFC 4251 § 5
+pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
+    trace!("-- BEGIN MPINT ENCODING --");
+
+    let mut bin = data.to_vec();
+    trace!("data = {:?}, length = {}", bin, bin.len());
+
+    if data.num_bytes() > 0 && data.is_bit_set(0) {
+        trace!("Adding a zero byte to the beginning of mpint");
+        bin.insert(0, 0);
+    }
+
+    let mpint = encode_string(&bin);
+    trace!("-- END MPINT ENCODING --");
+    mpint
+}
+
+pub fn encode_public_key(key_ident: &str, key: &[u8]) -> Vec<u8> {
+    [encode_string(key_ident.as_bytes()), encode_string(key)].concat()
 }
 
 pub fn u32_to_u8_array(value: u32) -> [u8; 4] {
