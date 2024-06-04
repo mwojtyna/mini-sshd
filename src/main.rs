@@ -40,7 +40,8 @@ fn connect() -> Result<()> {
                 "ecdh-sha2-nistp521".to_owned(),
             ],
 
-            server_host_key_algorithms: vec!["ssh-ed25519".to_owned()],
+            // RFC 5656 § 10.1
+            server_host_key_algorithms: vec!["ecdsa-sha2-nistp256".to_owned()],
             encryption_algorithms_client_to_server: vec!["aes128-ctr".to_owned()],
             encryption_algorithms_server_to_client: vec!["aes128-ctr".to_owned()],
 
@@ -60,7 +61,7 @@ fn connect() -> Result<()> {
     if cfg!(debug_assertions) {
         debug!(
             "public_key: {:?}",
-            String::from_utf8(server_config.host_key.public_key_to_pem().unwrap())
+            String::from_utf8(server_config.host_key.public_key_pem().to_vec())
                 .unwrap()
                 .lines()
                 .nth(1)
@@ -68,7 +69,7 @@ fn connect() -> Result<()> {
         );
         debug!(
             "private_key: {:?}",
-            String::from_utf8(server_config.host_key.private_key_to_pem_pkcs8().unwrap())
+            String::from_utf8(server_config.host_key.private_key_pem().to_vec())
                 .unwrap()
                 .lines()
                 .nth(1)

@@ -98,8 +98,13 @@ pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
     mpint
 }
 
-pub fn encode_public_key(key_ident: &str, key: &[u8]) -> Vec<u8> {
-    [encode_string(key_ident.as_bytes()), encode_string(key)].concat()
+/// Parameters:
+/// * `key_ident` - name of the key (ex: "ecdsa-sha2-nistp256")
+/// * `curve_name` - name of the curve (ex: "nistp256")
+/// * `key` - public key as a byte array
+pub fn encode_public_key(key_ident: &str, curve_name: &str, key: &[u8]) -> Vec<u8> {
+    let blob = [encode_string(curve_name.as_bytes()), encode_string(key)].concat();
+    [encode_string(key_ident.as_bytes()), blob].concat()
 }
 
 pub fn u32_to_u8_array(value: u32) -> [u8; 4] {

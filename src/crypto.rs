@@ -17,10 +17,46 @@ pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-pub type HostKey = PKey<Private>;
+#[derive(Debug, Clone)]
+pub struct HostKey {
+    private_key: Vec<u8>,
+    public_key: Vec<u8>,
+
+    private_key_pem: Vec<u8>,
+    public_key_pem: Vec<u8>,
+}
+impl<'a> HostKey {
+    pub fn private_key(&'a self) -> &'a Vec<u8> {
+        &self.private_key
+    }
+    pub fn public_key(&'a self) -> &'a Vec<u8> {
+        &self.public_key
+    }
+
+    pub fn private_key_pem(&'a self) -> &'a Vec<u8> {
+        &self.private_key_pem
+    }
+    pub fn public_key_pem(&'a self) -> &'a Vec<u8> {
+        &self.public_key_pem
+    }
+}
+
 pub fn generate_host_key() -> Result<HostKey> {
-    let key = PKey::generate_ed25519()?;
-    Ok(key)
+    let mut ctx = BigNumContext::new()?;
+    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+    let ec_pair = EcKey::generate(&group)?;
+    let pair = HostKey {
+        private_key: ec_pair.private_key().to_vec(),
+        public_key: ec_pair.public_key().to_bytes(
+            &group,
+            PointConversionForm::UNCOMPRESSED,
+            &mut ctx,
+        )?,
+        private_key_pem: ec_pair.private_key_to_pem()?,
+        public_key_pem: ec_pair.public_key_to_pem()?,
+    };
+
+    Ok(pair)
 }
 
 // TODO: Use negotiated algorithms instead of hardcoded ones

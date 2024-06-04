@@ -27,8 +27,9 @@ impl Session {
 
         // Server's public host key
         let k_s = encode_public_key(
-            "ssh-ed25519",
-            &self.server_config.host_key.raw_public_key()?,
+            "ecdsa-sha2-nistp256",
+            "nistp256",
+            self.server_config.host_key.public_key(),
         );
         if cfg!(debug_assertions) {
             debug!(
