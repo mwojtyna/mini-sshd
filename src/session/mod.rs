@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
 
 use crate::{
-    decoding::{decode_packet, u8_to_MessageType},
+    decoding::decode_packet,
     encoding::{encode_packet, u32_to_u8_array},
     types::{DisconnectReason, MessageType},
     ServerConfig,
@@ -59,8 +59,8 @@ impl Session {
             .context("Failed during ident exchange")?;
 
         // First request after ident exchange is always key exchange
-        let mut packet = decode_packet(&self.stream)?;
-        if u8_to_MessageType(packet.payload.remove(0))? != MessageType::SSH_MSG_KEXINIT {
+        let packet = decode_packet(&self.stream)?;
+        if packet.message_type()? != MessageType::SSH_MSG_KEXINIT {
             self.disconnect(DisconnectReason::SSH_DISCONNECT_PROTOCOL_ERROR)?;
             return Err(anyhow!("Expected key exchange packet"));
         }
@@ -128,11 +128,12 @@ impl Session {
         Ok(client_ident)
     }
 
+    // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
-        let mut decoded_packet = decode_packet(&self.stream)?;
-        self.incoming_packet_sequence += decoded_packet.entire_packet_length;
+        let decoded_packet = decode_packet(&self.stream)?;
+        self.incoming_packet_sequence += decoded_packet.entire_packet_length();
 
-        let msg_type = u8_to_MessageType(decoded_packet.payload.remove(0))?;
+        let msg_type = decoded_packet.message_type()?;
         trace!(
             "Received message of type = {:?}, current packet sequence = {}",
             msg_type,
@@ -148,9 +149,6 @@ impl Session {
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
 
             MessageType::SSH_MSG_KEXINIT => {
-                decoded_packet
-                    .payload
-                    .clone_into(&mut self.client_kexinit_payload);
                 self.algorithm_negotiation(decoded_packet)
                     .context("Failed during handling SSH_MSG_KEXINIT")?;
             }
@@ -164,7 +162,7 @@ impl Session {
                 error!(
                     "Unhandled message type.\ntype: {:?}\npayload: {:?}",
                     msg_type,
-                    String::from_utf8_lossy(&decoded_packet.payload)
+                    String::from_utf8_lossy(&decoded_packet.payload())
                 );
 
                 let payload = [

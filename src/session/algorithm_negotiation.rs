@@ -45,9 +45,12 @@ impl Session {
     // RFC 4253 § 7
     pub(super) fn algorithm_negotiation(&mut self, packet: DecodedPacket) -> Result<Algorithms> {
         debug!("--- BEGIN ALGORITHM NEGOTIATION ---");
+        packet
+            .payload_with_msg_type()
+            .clone_into(&mut self.client_kexinit_payload);
 
         debug!("Decoding client algorithms...");
-        let mut reader = packet.payload.into_iter();
+        let mut reader = packet.payload().into_iter();
         let reader = reader.by_ref();
 
         let cookie = reader.take(16).collect::<Vec<u8>>();

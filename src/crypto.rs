@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use log::debug;
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
@@ -19,16 +20,14 @@ pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {
 
 #[derive(Debug, Clone)]
 pub struct HostKey {
-    private_key: Vec<u8>,
     public_key: Vec<u8>,
 
     private_key_pem: Vec<u8>,
     public_key_pem: Vec<u8>,
+
+    ec_pair: EcKey<Private>,
 }
 impl<'a> HostKey {
-    pub fn private_key(&'a self) -> &'a Vec<u8> {
-        &self.private_key
-    }
     pub fn public_key(&'a self) -> &'a Vec<u8> {
         &self.public_key
     }
@@ -39,6 +38,10 @@ impl<'a> HostKey {
     pub fn public_key_pem(&'a self) -> &'a Vec<u8> {
         &self.public_key_pem
     }
+
+    pub fn ec_pair(&'a self) -> &'a EcKey<Private> {
+        &self.ec_pair
+    }
 }
 
 pub fn generate_host_key() -> Result<HostKey> {
@@ -46,7 +49,6 @@ pub fn generate_host_key() -> Result<HostKey> {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
     let ec_pair = EcKey::generate(&group)?;
     let pair = HostKey {
-        private_key: ec_pair.private_key().to_vec(),
         public_key: ec_pair.public_key().to_bytes(
             &group,
             PointConversionForm::UNCOMPRESSED,
@@ -54,6 +56,7 @@ pub fn generate_host_key() -> Result<HostKey> {
         )?,
         private_key_pem: ec_pair.private_key_to_pem()?,
         public_key_pem: ec_pair.public_key_to_pem()?,
+        ec_pair,
     };
 
     Ok(pair)
@@ -64,7 +67,6 @@ pub fn generate_host_key() -> Result<HostKey> {
 pub struct ComputeSharedSecretResult {
     pub secret: BigNum,
     pub eph_public_key: Vec<u8>,
-    pub eph_key_pair: PKey<Private>,
     pub hash_type: MessageDigest,
 }
 pub fn compute_shared_secret(peer_key: &[u8]) -> Result<ComputeSharedSecretResult> {
@@ -90,18 +92,23 @@ pub fn compute_shared_secret(peer_key: &[u8]) -> Result<ComputeSharedSecretResul
     Ok(ComputeSharedSecretResult {
         secret,
         eph_public_key,
-        eph_key_pair: eph_pair.clone(),
         hash_type: MessageDigest::sha256(),
     })
 }
 
 pub fn hash_and_sign(
-    private_key: &PKey<Private>,
+    private_key: &EcKey<Private>,
     data: &[u8],
     hash_type: MessageDigest,
 ) -> Result<EcdsaSig> {
-    let hashed = hash(hash_type, data)?.to_vec();
-    let signature = EcdsaSig::sign(&hashed, private_key.ec_key()?.as_ref())?;
+    // No clue why it has to be hashed twice, otherwise openssh client won't accept the signature
+    let hash_first = hash(hash_type, data)?;
+    let hash_final = hash(hash_type, &hash_first)?.to_vec();
+    if cfg!(debug_assertions) {
+        debug!("hash = {:02x?}", hash_final);
+    }
+
+    let signature = EcdsaSig::sign(&hash_final, private_key.as_ref())?;
 
     Ok(signature)
 }

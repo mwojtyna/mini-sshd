@@ -12,9 +12,35 @@ use crate::{
     types::MessageType,
 };
 
+#[derive(Debug)]
 pub struct DecodedPacket {
-    pub payload: Vec<u8>,
-    pub entire_packet_length: u32,
+    payload: Vec<u8>,
+    entire_packet_length: u32,
+}
+
+impl DecodedPacket {
+    pub fn message_type(&self) -> Result<MessageType> {
+        if self.payload.is_empty() {
+            return Err(anyhow!("Payload is empty"));
+        }
+
+        let message_type = u8_to_MessageType(self.payload[0])?;
+        Ok(message_type)
+    }
+
+    /// Returns the payload without the message type
+    pub fn payload(&self) -> Vec<u8> {
+        let without_msg_type = &self.payload[1..];
+        without_msg_type.to_vec()
+    }
+
+    pub fn payload_with_msg_type(&self) -> &Vec<u8> {
+        &self.payload
+    }
+
+    pub fn entire_packet_length(&self) -> u32 {
+        self.entire_packet_length
+    }
 }
 
 // RFC 4253 § 6
@@ -71,7 +97,7 @@ pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
 }
 
 // RFC 4251 § 5
-/// * `iter` - iterator where `iter.next()` will return the first byte of the name-list
+/// - `iter` - iterator where `iter.next()` will return the first byte of the name-list
 pub fn decode_name_list(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<String>> {
     trace!("-- BEGIN NAME-LIST DECODING --");
 
