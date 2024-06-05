@@ -5,7 +5,7 @@ use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 use crate::{
     crypto::{compute_shared_secret, hash_and_sign, ComputeSharedSecretResult},
     decoding::{decode_string, DecodedPacket},
-    encoding::{encode_mpint, encode_packet, encode_string},
+    encoding::{encode_mpint, encode_mpint_pad, encode_packet, encode_string},
     types::MessageType,
     Session,
 };
@@ -118,7 +118,7 @@ pub fn encode_public_key(curve_name: &str, key: &[u8]) -> Vec<u8> {
 
 // RFC 5656 § 3.1.1
 pub fn encode_signature(sig: &EcdsaSigRef) -> Result<Vec<u8>> {
-    let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
+    let signature_blob = [encode_mpint_pad(sig.r()), encode_mpint_pad(sig.s())].concat();
     if cfg!(debug_assertions) {
         debug!(
             "r = {}, length = {}",

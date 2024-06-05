@@ -87,12 +87,23 @@ pub fn encode_string(data: &[u8]) -> Vec<u8> {
 
 // RFC 4251 § 5
 pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
+    encode_mpint_internal(data, false)
+}
+pub fn encode_mpint_pad(data: &BigNumRef) -> Vec<u8> {
+    encode_mpint_internal(data, true)
+}
+fn encode_mpint_internal(data: &BigNumRef, pad: bool) -> Vec<u8> {
     trace!("-- BEGIN MPINT ENCODING --");
 
     let mut bin = data.to_vec();
     trace!("data = {:?}, length = {}", bin, bin.len());
 
-    if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
+    if !pad {
+        if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
+            trace!("Adding a zero byte to the beginning of mpint");
+            bin.insert(0, 0);
+        }
+    } else {
         trace!("Adding a zero byte to the beginning of mpint");
         bin.insert(0, 0);
     }
