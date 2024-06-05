@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
 
 use crate::{
-    decoding::decode_packet,
+    decoding::{decode_packet, PayloadReader},
     encoding::{encode_packet, u32_to_u8_array},
     types::{DisconnectReason, MessageType},
     ServerConfig,
@@ -57,17 +57,6 @@ impl Session {
         self.client_ident = self
             .ident_exchange()
             .context("Failed during ident exchange")?;
-
-        // First request after ident exchange is always key exchange
-        let packet = decode_packet(&self.stream)?;
-        if packet.message_type()? != MessageType::SSH_MSG_KEXINIT {
-            self.disconnect(DisconnectReason::SSH_DISCONNECT_PROTOCOL_ERROR)?;
-            return Err(anyhow!("Expected key exchange packet"));
-        }
-
-        self.algorithms = self
-            .algorithm_negotiation(packet)
-            .context("Failed during key exchange")?;
 
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
@@ -130,15 +119,17 @@ impl Session {
 
     // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
-        let decoded_packet = decode_packet(&self.stream)?;
-        self.incoming_packet_sequence += decoded_packet.entire_packet_length();
+        let packet = decode_packet(&self.stream)?;
+        self.incoming_packet_sequence += packet.entire_packet_length();
 
-        let msg_type = decoded_packet.message_type()?;
+        let msg_type = packet.message_type()?;
         trace!(
             "Received message of type = {:?}, current packet sequence = {}",
             msg_type,
             self.incoming_packet_sequence
         );
+
+        let mut reader = PayloadReader::new(packet.payload());
 
         match msg_type {
             MessageType::SSH_MSG_DISCONNECT => {
@@ -149,12 +140,12 @@ impl Session {
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
 
             MessageType::SSH_MSG_KEXINIT => {
-                self.algorithm_negotiation(decoded_packet)
+                self.algorithm_negotiation(&packet, &mut reader)
                     .context("Failed during handling SSH_MSG_KEXINIT")?;
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                self.key_exchange(decoded_packet)
+                self.key_exchange(&mut reader)
                     .context("Failed during handling SSH_MSG_KEX_ECDH_INIT")?;
             }
 
@@ -162,7 +153,7 @@ impl Session {
                 error!(
                     "Unhandled message type.\ntype: {:?}\npayload: {:?}",
                     msg_type,
-                    String::from_utf8_lossy(&decoded_packet.payload())
+                    String::from_utf8_lossy(&packet.payload())
                 );
 
                 let payload = [

@@ -4,7 +4,7 @@ use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 
 use crate::{
     crypto::{compute_shared_secret, hash_and_sign, ComputeSharedSecretResult},
-    decoding::{decode_string, DecodedPacket},
+    decoding::PayloadReader,
     encoding::{encode_mpint, encode_mpint_pad, encode_packet, encode_string},
     types::MessageType,
     Session,
@@ -12,11 +12,11 @@ use crate::{
 
 impl Session {
     // RFC 5656 § 4
-    pub(super) fn key_exchange(&mut self, packet: DecodedPacket) -> Result<()> {
+    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
         // Client's public key
-        let q_c = decode_string(&mut packet.payload().into_iter())?;
+        let q_c = reader.next_string()?;
 
         // Server's public host key
         let k_s = encode_public_key("nistp256", self.server_config.host_key.public_key());

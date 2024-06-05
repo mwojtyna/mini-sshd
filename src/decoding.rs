@@ -12,6 +12,66 @@ use crate::{
     types::MessageType,
 };
 
+pub struct PayloadReader {
+    iter: std::vec::IntoIter<u8>,
+}
+
+impl PayloadReader {
+    pub fn new(payload: Vec<u8>) -> Self {
+        PayloadReader {
+            iter: payload.into_iter(),
+        }
+    }
+
+    // RFC 4251 § 5
+    pub fn next_name_list(&mut self) -> Result<Vec<String>> {
+        trace!("-- BEGIN NAME-LIST DECODING --");
+
+        let iter = self.iter.by_ref();
+        let length_bytes = iter.take(PACKET_LENGTH_SIZE).collect::<Vec<u8>>();
+
+        let length = u8_array_to_u32(length_bytes.as_slice())?;
+        trace!("length = {} bytes", length);
+
+        let value_bytes = iter.take(length as usize).collect::<Vec<u8>>();
+        let value =
+            String::from_utf8(value_bytes).context("Failed to decode name-list to string")?;
+        trace!("value = {}", value);
+
+        let name_list = value.split(',').map(String::from).collect();
+        trace!("name_list = {:?}", name_list);
+
+        trace!("-- END NAME-LIST DECODING --");
+        Ok(name_list)
+    }
+
+    // RFC 4251 § 5
+    pub fn next_string(&mut self) -> Result<Vec<u8>> {
+        trace!("-- BEGIN STRING DECODING --");
+
+        let iter = self.iter.by_ref();
+        let length_bytes = iter.take(STRING_LENGTH_SIZE).collect::<Vec<u8>>();
+        let length = u8_array_to_u32(&length_bytes)?;
+        trace!("length = {}", length);
+
+        let string = iter.take(length as usize).collect();
+        trace!("string = {:?}", string);
+
+        trace!("-- END STRING DECODING --");
+        Ok(string)
+    }
+
+    pub fn next_byte(&mut self) -> Option<u8> {
+        let byte = self.iter.by_ref().next()?;
+        Some(byte)
+    }
+
+    pub fn next_n_bytes(&mut self, n: usize) -> Vec<u8> {
+        let bytes = self.iter.by_ref().take(n).collect();
+        bytes
+    }
+}
+
 #[derive(Debug)]
 pub struct DecodedPacket {
     payload: Vec<u8>,
@@ -94,40 +154,6 @@ pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
         payload,
         entire_packet_length: packet_length + PACKET_LENGTH_SIZE as u32, // TODO: mac
     })
-}
-
-// RFC 4251 § 5
-/// - `iter` - iterator where `iter.next()` will return the first byte of the name-list
-pub fn decode_name_list(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<String>> {
-    trace!("-- BEGIN NAME-LIST DECODING --");
-
-    let length_bytes = iter.take(PACKET_LENGTH_SIZE).collect::<Vec<u8>>();
-    let length = u8_array_to_u32(length_bytes.as_slice())?;
-    trace!("length = {} bytes", length);
-
-    let value_bytes = iter.take(length as usize).collect::<Vec<u8>>();
-    let value = String::from_utf8(value_bytes).context("Failed to decode name-list to string")?;
-    trace!("value = {}", value);
-
-    let name_list = value.split(',').map(String::from).collect();
-    trace!("name_list = {:?}", name_list);
-    trace!("-- END NAME-LIST DECODING --");
-
-    Ok(name_list)
-}
-
-pub fn decode_string(iter: &mut dyn Iterator<Item = u8>) -> Result<Vec<u8>> {
-    trace!("-- BEGIN STRING DECODING --");
-
-    let length_bytes = iter.take(STRING_LENGTH_SIZE).collect::<Vec<u8>>();
-    let length = u8_array_to_u32(&length_bytes)?;
-    trace!("length = {}", length);
-
-    let string = iter.take(length as usize).collect();
-    trace!("string = {:?}", string);
-
-    trace!("-- END STRING DECODING --");
-    Ok(string)
 }
 
 pub fn u8_array_to_u32(array: &[u8]) -> Result<u32> {

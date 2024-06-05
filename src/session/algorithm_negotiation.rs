@@ -5,7 +5,7 @@ use log::{debug, trace};
 
 use crate::{
     crypto::generate_random_array,
-    decoding::{decode_name_list, packet_too_short, u8_to_bool, DecodedPacket},
+    decoding::{packet_too_short, u8_to_bool, DecodedPacket, PayloadReader},
     encoding::{bool_to_u8, encode_name_list, encode_packet},
     session::Session,
     types::MessageType,
@@ -43,17 +43,19 @@ pub struct Algorithms {
 
 impl Session {
     // RFC 4253 § 7
-    pub(super) fn algorithm_negotiation(&mut self, packet: DecodedPacket) -> Result<Algorithms> {
+    pub(super) fn algorithm_negotiation(
+        &mut self,
+        packet: &DecodedPacket,
+        reader: &mut PayloadReader,
+    ) -> Result<Algorithms> {
         debug!("--- BEGIN ALGORITHM NEGOTIATION ---");
         packet
             .payload_with_msg_type()
             .clone_into(&mut self.client_kexinit_payload);
 
         debug!("Decoding client algorithms...");
-        let mut reader = packet.payload().into_iter();
-        let reader = reader.by_ref();
 
-        let cookie = reader.take(16).collect::<Vec<u8>>();
+        let cookie = reader.next_n_bytes(16);
         trace!("cookie = {:?}", cookie);
 
         let client_algorithms =
@@ -78,26 +80,26 @@ impl Session {
     }
 }
 
-fn decode_client_algorithms(reader: &mut impl Iterator<Item = u8>) -> Result<AlgorithmNegotiation> {
-    let kex_algorithms = decode_name_list(reader)?;
-    let server_host_key_algorithms = decode_name_list(reader)?;
-    let encryption_algorithms_client_to_server = decode_name_list(reader)?;
-    let encryption_algorithms_server_to_client = decode_name_list(reader)?;
-    let mac_algorithms_client_to_server = decode_name_list(reader)?;
-    let mac_algorithms_server_to_client = decode_name_list(reader)?;
-    let compression_algorithms_client_to_server = decode_name_list(reader)?;
-    let compression_algorithms_server_to_client = decode_name_list(reader)?;
-    let languages_client_to_server = decode_name_list(reader)?;
-    let languages_server_to_client = decode_name_list(reader)?;
+fn decode_client_algorithms(reader: &mut PayloadReader) -> Result<AlgorithmNegotiation> {
+    let kex_algorithms = reader.next_name_list()?;
+    let server_host_key_algorithms = reader.next_name_list()?;
+    let encryption_algorithms_client_to_server = reader.next_name_list()?;
+    let encryption_algorithms_server_to_client = reader.next_name_list()?;
+    let mac_algorithms_client_to_server = reader.next_name_list()?;
+    let mac_algorithms_server_to_client = reader.next_name_list()?;
+    let compression_algorithms_client_to_server = reader.next_name_list()?;
+    let compression_algorithms_server_to_client = reader.next_name_list()?;
+    let languages_client_to_server = reader.next_name_list()?;
+    let languages_server_to_client = reader.next_name_list()?;
 
-    if let Some(first_kex_packet_follows_u8) = reader.next() {
+    if let Some(first_kex_packet_follows_u8) = reader.next_byte() {
         let first_kex_packet_follows = u8_to_bool(first_kex_packet_follows_u8)?;
         debug!("first_kex_packet_follows = {}", first_kex_packet_follows);
     } else {
         return packet_too_short("first_kex_packet_follows");
     }
 
-    let _reserved = reader.take(4).collect::<Vec<u8>>();
+    let _reserved = reader.next_n_bytes(4);
 
     let client_algorithms = AlgorithmNegotiation {
         kex_algorithms,
