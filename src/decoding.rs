@@ -75,7 +75,6 @@ impl PayloadReader {
 #[derive(Debug)]
 pub struct DecodedPacket {
     payload: Vec<u8>,
-    entire_packet_length: u32,
 }
 
 impl DecodedPacket {
@@ -96,10 +95,6 @@ impl DecodedPacket {
 
     pub fn payload_with_msg_type(&self) -> &Vec<u8> {
         &self.payload
-    }
-
-    pub fn entire_packet_length(&self) -> u32 {
-        self.entire_packet_length
     }
 }
 
@@ -150,10 +145,7 @@ pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
     }
 
     trace!("-- END PACKET DECODING --");
-    Ok(DecodedPacket {
-        payload,
-        entire_packet_length: packet_length + PACKET_LENGTH_SIZE as u32, // TODO: mac
-    })
+    Ok(DecodedPacket { payload })
 }
 
 pub fn u8_array_to_u32(array: &[u8]) -> Result<u32> {

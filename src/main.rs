@@ -61,7 +61,7 @@ fn connect() -> Result<()> {
     if cfg!(debug_assertions) {
         debug!(
             "public_key: {:?}",
-            String::from_utf8(server_config.host_key.public_key_pem().to_vec())
+            String::from_utf8(server_config.host_key.public_key_pem.to_vec())
                 .unwrap()
                 .lines()
                 .nth(1)
@@ -69,7 +69,7 @@ fn connect() -> Result<()> {
         );
         debug!(
             "private_key: {:?}",
-            String::from_utf8(server_config.host_key.private_key_pem().to_vec())
+            String::from_utf8(server_config.host_key.private_key_pem.to_vec())
                 .unwrap()
                 .lines()
                 .nth(1)

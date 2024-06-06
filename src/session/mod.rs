@@ -19,11 +19,11 @@ pub mod key_exchange;
 
 pub struct Session {
     stream: TcpStream,
-    outgoing_packet_sequence: u32,
-    incoming_packet_sequence: u32,
+    sequence_number: u32,
 
-    algorithms: Algorithms,
     server_config: ServerConfig,
+    algorithms: Option<Algorithms>,
+    shared_secret: Option<Vec<u8>>,
 
     // For ECDH kex exchange
     client_ident: String,
@@ -35,11 +35,11 @@ impl Session {
     pub fn new(stream: TcpStream, server_config: ServerConfig) -> Self {
         Session {
             stream,
-            outgoing_packet_sequence: 0,
-            incoming_packet_sequence: 0,
+            sequence_number: 0,
 
-            algorithms: Algorithms::default(),
             server_config,
+            algorithms: None,
+            shared_secret: None,
 
             client_ident: String::new(),
             client_kexinit_payload: Vec::new(),
@@ -72,6 +72,14 @@ impl Session {
         Ok(())
     }
 
+    pub fn sequence_number(&self) -> u32 {
+        self.sequence_number
+    }
+
+    pub fn shared_secret(&self) -> &Option<Vec<u8>> {
+        &self.shared_secret
+    }
+
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self) -> Result<String> {
         debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
@@ -79,10 +87,10 @@ impl Session {
 
         let mut reader = BufReader::new(&mut self.stream);
         let mut client_ident = String::new();
-        self.incoming_packet_sequence += reader
+        reader
             .read_line(&mut client_ident)
-            .context("Failed reading client_ident")?
-            as u32;
+            .context("Failed reading client_ident")?;
+
         client_ident = client_ident.lines().next().unwrap().to_string();
         debug!("client = {:?}", client_ident);
 
@@ -120,13 +128,11 @@ impl Session {
     // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
         let packet = decode_packet(&self.stream)?;
-        self.incoming_packet_sequence += packet.entire_packet_length();
-
         let msg_type = packet.message_type()?;
         trace!(
-            "Received message of type = {:?}, current packet sequence = {}",
+            "Received message of type = {:?}, sequence_number = {}",
             msg_type,
-            self.incoming_packet_sequence
+            self.sequence_number
         );
 
         let mut reader = PayloadReader::new(packet.payload());
@@ -140,13 +146,21 @@ impl Session {
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
 
             MessageType::SSH_MSG_KEXINIT => {
-                self.algorithm_negotiation(&packet, &mut reader)
-                    .context("Failed during handling SSH_MSG_KEXINIT")?;
+                self.algorithms = Some(
+                    self.algorithm_negotiation(&packet, &mut reader)
+                        .context("Failed during handling SSH_MSG_KEXINIT")?,
+                );
+            }
+            MessageType::SSH_MSG_NEWKEYS => {
+                let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, self).build()?;
+                self.send_packet(&packet)?;
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                self.key_exchange(&mut reader)
-                    .context("Failed during handling SSH_MSG_KEX_ECDH_INIT")?;
+                self.shared_secret = Some(
+                    self.key_exchange(&mut reader)
+                        .context("Failed during handling SSH_MSG_KEX_ECDH_INIT")?,
+                );
             }
 
             _ => {
@@ -156,18 +170,18 @@ impl Session {
                     String::from_utf8_lossy(&packet.payload())
                 );
 
-                let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED)
-                    .write_u32(self.incoming_packet_sequence)
+                let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED, self)
+                    .write_u32(self.sequence_number)
                     .build()?;
                 self.send_packet(&packet)?;
             }
         }
 
+        self.sequence_number = self.sequence_number.wrapping_add(1);
         Ok(None)
     }
 
     fn send_packet(&mut self, packet: &[u8]) -> Result<()> {
-        self.outgoing_packet_sequence += packet.len() as u32;
         self.stream
             .write_all(packet)
             .context("Failed sending packet")?;
@@ -177,7 +191,7 @@ impl Session {
 
     // RFC 4253 § 11.1
     fn disconnect(&mut self, reason: DisconnectReason) -> Result<()> {
-        let packet = PacketBuilder::new(MessageType::SSH_MSG_DISCONNECT)
+        let packet = PacketBuilder::new(MessageType::SSH_MSG_DISCONNECT, self)
             .write_byte(reason.clone() as u8)
             .write_bytes(b"")
             .write_bytes(b"en")

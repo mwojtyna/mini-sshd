@@ -9,7 +9,10 @@ use openssl::{
     nid::Nid,
     pkey::{PKey, Private, Public},
     rand::rand_bytes,
+    sign::Signer,
 };
+
+use crate::encoding::encode_u32;
 
 pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {
     let mut out = vec![0; len];
@@ -20,28 +23,12 @@ pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {
 
 #[derive(Debug, Clone)]
 pub struct HostKey {
-    public_key: Vec<u8>,
+    pub public_key: Vec<u8>,
 
-    private_key_pem: Vec<u8>,
-    public_key_pem: Vec<u8>,
+    pub private_key_pem: Vec<u8>,
+    pub public_key_pem: Vec<u8>,
 
-    ec_pair: EcKey<Private>,
-}
-impl<'a> HostKey {
-    pub fn public_key(&'a self) -> &'a Vec<u8> {
-        &self.public_key
-    }
-
-    pub fn private_key_pem(&'a self) -> &'a Vec<u8> {
-        &self.private_key_pem
-    }
-    pub fn public_key_pem(&'a self) -> &'a Vec<u8> {
-        &self.public_key_pem
-    }
-
-    pub fn ec_pair(&'a self) -> &'a EcKey<Private> {
-        &self.ec_pair
-    }
+    pub ec_pair: EcKey<Private>,
 }
 
 pub fn generate_host_key() -> Result<HostKey> {
@@ -111,4 +98,15 @@ pub fn hash_and_sign(
     let signature = EcdsaSig::sign(&hash_final, private_key.as_ref())?;
 
     Ok(signature)
+}
+
+// RFC 4253 § 6.4
+pub fn compute_mac(shared_secret: &[u8], sequence_num: u32, packet: &[u8]) -> Result<Vec<u8>> {
+    let pkey = PKey::hmac(shared_secret)?;
+    let mut signer = Signer::new(MessageDigest::sha256(), &pkey)?;
+    signer.update(&encode_u32(sequence_num))?;
+    signer.update(packet)?;
+
+    let mac = signer.sign_to_vec()?;
+    Ok(mac)
 }

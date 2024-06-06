@@ -5,21 +5,21 @@ use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 use crate::{
     crypto::{compute_shared_secret, hash_and_sign, ComputeSharedSecretResult},
     decoding::PayloadReader,
-    encoding::{encode_mpint, encode_mpint_pad, encode_string, PacketBuilder},
+    encoding::{encode_mpint, encode_string, PacketBuilder},
     types::MessageType,
     Session,
 };
 
 impl Session {
     // RFC 5656 § 4
-    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<()> {
+    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<Vec<u8>> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
         // Client's public key
         let q_c = reader.next_string()?;
 
         // Server's public host key
-        let k_s = encode_public_key("nistp256", self.server_config.host_key.public_key());
+        let k_s = encode_public_key("nistp256", &self.server_config.host_key.public_key);
 
         let ComputeSharedSecretResult {
             secret: k,
@@ -40,18 +40,18 @@ impl Session {
         if cfg!(debug_assertions) {
             debug!(
                 "concatenated = {:02x?}, length = {}",
-                hash_data,
+                &hash_data,
                 hash_data.len()
             );
         }
 
         let signed_exchange_hash =
-            hash_and_sign(self.server_config.host_key.ec_pair(), &hash_data, hash_type)
+            hash_and_sign(&self.server_config.host_key.ec_pair, &hash_data, hash_type)
                 .context("Failed to hash and sign")?;
 
         let signature_enc = encode_signature(&signed_exchange_hash)?;
 
-        let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY)
+        let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY, self)
             .write_string(&k_s)
             .write_string(&q_s)
             .write_string(&signature_enc)
@@ -59,7 +59,7 @@ impl Session {
         self.send_packet(&packet)?;
 
         debug!("--- END KEY EXCHANGE ---");
-        Ok(())
+        Ok(k.to_vec())
     }
 }
 
@@ -74,21 +74,6 @@ fn concat_hash_data(
     q_s: &[u8],
     k: &BigNum,
 ) -> Result<Vec<u8>> {
-    if cfg!(debug_assertions) {
-        debug!("v_c = {:02x?}, len = {}", v_c, v_c.len());
-        debug!("v_s = {:02x?}, len = {}", v_s, v_s.len());
-        debug!("i_c = {:02x?}, len = {}", i_c, i_c.len());
-        debug!("i_s = {:02x?}, len = {}", i_s, i_s.len());
-        debug!("k_s = {:02x?}, len = {}", k_s, k_s.len());
-        debug!("q_c = {:02x?}, len = {}", q_c, q_c.len());
-        debug!("q_s = {:02x?}, len = {}", q_s, q_s.len());
-        debug!(
-            "k = {:02x?}, len = {}",
-            encode_mpint(k),
-            encode_mpint(k).len()
-        );
-    }
-
     let v_c = encode_string(v_c);
     let v_s = encode_string(v_s);
     let i_c = encode_string(i_c);
@@ -114,7 +99,7 @@ pub fn encode_public_key(curve_name: &str, key: &[u8]) -> Vec<u8> {
 
 // RFC 5656 § 3.1.1
 pub fn encode_signature(sig: &EcdsaSigRef) -> Result<Vec<u8>> {
-    let signature_blob = [encode_mpint_pad(sig.r()), encode_mpint_pad(sig.s())].concat();
+    let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
     if cfg!(debug_assertions) {
         debug!(
             "r = {}, length = {}",

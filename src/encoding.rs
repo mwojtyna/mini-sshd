@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::{log_enabled, trace, Level};
 use openssl::bn::BigNumRef;
 
-use crate::{crypto::generate_random_array, types::MessageType};
+use crate::{crypto::generate_random_array, session::Session, types::MessageType};
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
@@ -12,15 +12,17 @@ pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
 
 const MIN_PADDING: u8 = 4;
 
-pub struct PacketBuilder {
+pub struct PacketBuilder<'a> {
     payload: Vec<u8>,
+    session: &'a Session,
 }
 
 #[allow(dead_code)]
-impl PacketBuilder {
-    pub fn new(message_type: MessageType) -> Self {
+impl<'a> PacketBuilder<'a> {
+    pub fn new(message_type: MessageType, session: &'a Session) -> Self {
         PacketBuilder {
             payload: vec![message_type as u8],
+            session,
         }
     }
 
@@ -32,10 +34,11 @@ impl PacketBuilder {
         const CIPHER_BLOCK_SIZE: usize = 8;
 
         let p = PACKET_LENGTH_SIZE + PADDING_LENGTH_SIZE + self.payload.len();
-        let padding_length = u8::max(
-            (CIPHER_BLOCK_SIZE - (p % CIPHER_BLOCK_SIZE)) as u8,
-            MIN_PADDING,
-        );
+        let mut padding_length = (CIPHER_BLOCK_SIZE - (p % CIPHER_BLOCK_SIZE)) as u8;
+        if padding_length < MIN_PADDING {
+            padding_length += CIPHER_BLOCK_SIZE as u8;
+        }
+
         let packet_length: u32 =
             (PADDING_LENGTH_SIZE + self.payload.len() + padding_length as usize) as u32;
         let random_padding = generate_random_array(padding_length.into())?;
@@ -107,10 +110,6 @@ impl PacketBuilder {
         self.payload.extend(encode_mpint(data));
         self
     }
-    pub fn write_mpint_pad(mut self, data: &BigNumRef) -> Self {
-        self.payload.extend(encode_mpint_pad(data));
-        self
-    }
 }
 
 pub fn encode_bool(value: bool) -> u8 {
@@ -160,23 +159,12 @@ pub fn encode_string(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
-    encode_mpint_internal(data, false)
-}
-pub fn encode_mpint_pad(data: &BigNumRef) -> Vec<u8> {
-    encode_mpint_internal(data, true)
-}
-fn encode_mpint_internal(data: &BigNumRef, pad: bool) -> Vec<u8> {
     trace!("-- BEGIN MPINT ENCODING --");
 
     let mut bin = data.to_vec();
     trace!("data = {:?}, length = {}", bin, bin.len());
 
-    if !pad {
-        if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
-            trace!("Adding a zero byte to the beginning of mpint");
-            bin.insert(0, 0);
-        }
-    } else {
+    if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
         trace!("Adding a zero byte to the beginning of mpint");
         bin.insert(0, 0);
     }
