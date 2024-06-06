@@ -9,7 +9,7 @@ use log::{debug, error, trace};
 
 use crate::{
     decoding::{decode_packet, PayloadReader},
-    encoding::{encode_packet, u32_to_u8_array},
+    encoding::PacketBuilder,
     types::{DisconnectReason, MessageType},
     ServerConfig,
 };
@@ -156,12 +156,9 @@ impl Session {
                     String::from_utf8_lossy(&packet.payload())
                 );
 
-                let payload = [
-                    vec![MessageType::SSH_MSG_UNIMPLEMENTED as u8],
-                    u32_to_u8_array(self.incoming_packet_sequence).to_vec(),
-                ]
-                .concat();
-                let packet = encode_packet(&payload)?;
+                let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED)
+                    .write_u32(self.incoming_packet_sequence)
+                    .build()?;
                 self.send_packet(&packet)?;
             }
         }
@@ -180,19 +177,14 @@ impl Session {
 
     // RFC 4253 § 11.1
     fn disconnect(&mut self, reason: DisconnectReason) -> Result<()> {
-        let payload = &[
-            vec![MessageType::SSH_MSG_DISCONNECT as u8],
-            vec![reason.clone() as u8],
-            b"".to_vec(),
-            b"en".to_vec(),
-        ]
-        .concat();
-
-        let packet = encode_packet(payload)?;
+        let packet = PacketBuilder::new(MessageType::SSH_MSG_DISCONNECT)
+            .write_byte(reason.clone() as u8)
+            .write_bytes(b"")
+            .write_bytes(b"en")
+            .build()?;
         self.send_packet(&packet)?;
 
         debug!("Disconnecting because of {:?}", &reason);
-
         Ok(())
     }
 }

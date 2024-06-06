@@ -6,7 +6,7 @@ use log::{debug, trace};
 use crate::{
     crypto::generate_random_array,
     decoding::{packet_too_short, u8_to_bool, DecodedPacket, PayloadReader},
-    encoding::{bool_to_u8, encode_name_list, encode_packet},
+    encoding::PacketBuilder,
     session::Session,
     types::MessageType,
 };
@@ -61,11 +61,10 @@ impl Session {
         let client_algorithms =
             decode_client_algorithms(reader).context("Failed reading client algorithms")?;
 
-        let server_algorithms_payload = encode_server_algorithms(&self.server_config.algorithms)?;
-        server_algorithms_payload.clone_into(&mut self.server_kexinit_payload);
+        let (server_algorithms_payload, server_algorithms_packet) =
+            encode_server_algorithms(&self.server_config.algorithms)?;
 
-        let server_algorithms_packet =
-            encode_packet(&server_algorithms_payload).context("Failed encoding packet")?;
+        server_algorithms_payload.clone_into(&mut self.server_kexinit_payload);
 
         debug!("Sending server algorithms...");
         debug!("server_algorithms = {:#?}", &self.server_config.algorithms);
@@ -118,45 +117,28 @@ fn decode_client_algorithms(reader: &mut PayloadReader) -> Result<AlgorithmNegot
     Ok(client_algorithms)
 }
 
-fn encode_server_algorithms(algorithms: &AlgorithmNegotiation) -> Result<Vec<u8>> {
-    let msg_type = vec![MessageType::SSH_MSG_KEXINIT as u8];
+fn encode_server_algorithms(algorithms: &AlgorithmNegotiation) -> Result<(Vec<u8>, Vec<u8>)> {
     let cookie = generate_random_array(16)?;
-    let kex_algorithms = encode_name_list(&algorithms.kex_algorithms);
-    let server_host_key_algorithms = encode_name_list(&algorithms.server_host_key_algorithms);
-    let encryption_algorithms_client_to_server =
-        encode_name_list(&algorithms.encryption_algorithms_client_to_server);
-    let encryption_algorithms_server_to_client =
-        encode_name_list(&algorithms.encryption_algorithms_server_to_client);
-    let mac_algorithms_client_to_server =
-        encode_name_list(&algorithms.mac_algorithms_client_to_server);
-    let mac_algorithms_server_to_client =
-        encode_name_list(&algorithms.mac_algorithms_server_to_client);
-    let compression_algorithms_client_to_server =
-        encode_name_list(&algorithms.compression_algorithms_client_to_server);
-    let compression_algorithms_server_to_client =
-        encode_name_list(&algorithms.compression_algorithms_server_to_client);
-    let languages_client_to_server = encode_name_list(&algorithms.languages_client_to_server);
-    let languages_server_to_client = encode_name_list(&algorithms.languages_server_to_client);
-    let first_kex_packet_follows = vec![bool_to_u8(false)];
+    let first_kex_packet_follows = false;
     let reserved = vec![0; 4];
 
-    Ok([
-        msg_type,
-        cookie,
-        kex_algorithms,
-        server_host_key_algorithms,
-        encryption_algorithms_client_to_server,
-        encryption_algorithms_server_to_client,
-        mac_algorithms_client_to_server,
-        mac_algorithms_server_to_client,
-        compression_algorithms_client_to_server,
-        compression_algorithms_server_to_client,
-        languages_client_to_server,
-        languages_server_to_client,
-        first_kex_packet_follows,
-        reserved,
-    ]
-    .concat())
+    let payload_packet = PacketBuilder::new(MessageType::SSH_MSG_KEXINIT)
+        .write_bytes(&cookie)
+        .write_name_list(&algorithms.kex_algorithms)
+        .write_name_list(&algorithms.server_host_key_algorithms)
+        .write_name_list(&algorithms.encryption_algorithms_client_to_server)
+        .write_name_list(&algorithms.encryption_algorithms_server_to_client)
+        .write_name_list(&algorithms.mac_algorithms_client_to_server)
+        .write_name_list(&algorithms.mac_algorithms_server_to_client)
+        .write_name_list(&algorithms.compression_algorithms_client_to_server)
+        .write_name_list(&algorithms.compression_algorithms_server_to_client)
+        .write_name_list(&algorithms.languages_client_to_server)
+        .write_name_list(&algorithms.languages_server_to_client)
+        .write_bool(first_kex_packet_follows)
+        .write_bytes(&reserved)
+        .build_get_payload()?;
+
+    Ok(payload_packet)
 }
 
 fn negotiate_algorithms(

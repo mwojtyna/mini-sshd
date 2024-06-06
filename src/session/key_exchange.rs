@@ -5,7 +5,7 @@ use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 use crate::{
     crypto::{compute_shared_secret, hash_and_sign, ComputeSharedSecretResult},
     decoding::PayloadReader,
-    encoding::{encode_mpint, encode_mpint_pad, encode_packet, encode_string},
+    encoding::{encode_mpint, encode_mpint_pad, encode_string, PacketBuilder},
     types::MessageType,
     Session,
 };
@@ -51,15 +51,11 @@ impl Session {
 
         let signature_enc = encode_signature(&signed_exchange_hash)?;
 
-        let payload = [
-            vec![MessageType::SSH_MSG_KEX_ECDH_REPLY as u8],
-            encode_string(&k_s),
-            encode_string(&q_s),
-            encode_string(&signature_enc),
-        ]
-        .concat();
-
-        let packet = encode_packet(&payload)?;
+        let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY)
+            .write_string(&k_s)
+            .write_string(&q_s)
+            .write_string(&signature_enc)
+            .build()?;
         self.send_packet(&packet)?;
 
         debug!("--- END KEY EXCHANGE ---");
