@@ -8,8 +8,9 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
 
 use crate::{
+    crypto::hash,
     decoding::{decode_packet, PayloadReader},
-    encoding::PacketBuilder,
+    encoding::{encode_mpint, PacketBuilder},
     types::{DisconnectReason, MessageType},
     ServerConfig,
 };
@@ -23,12 +24,24 @@ pub struct Session {
 
     server_config: ServerConfig,
     algorithms: Option<Algorithms>,
-    shared_secret: Option<Vec<u8>>,
 
-    // For ECDH kex exchange
-    client_ident: String,
-    client_kexinit_payload: Vec<u8>,
-    server_kexinit_payload: Vec<u8>,
+    kex: KeyExchange,
+
+    // Secrets
+    session_id: Vec<u8>,
+    iv_client_server: Vec<u8>,
+    iv_server_client: Vec<u8>,
+    enc_key_client_server: Vec<u8>,
+    enc_key_server_client: Vec<u8>,
+    integrity_key_client_server: Vec<u8>,
+    integrity_key_server_client: Vec<u8>,
+}
+
+pub struct KeyExchange {
+    pub client_ident: String,
+    pub client_kexinit_payload: Vec<u8>,
+    pub server_kexinit_payload: Vec<u8>,
+    pub finished: bool,
 }
 
 impl Session {
@@ -39,11 +52,21 @@ impl Session {
 
             server_config,
             algorithms: None,
-            shared_secret: None,
 
-            client_ident: String::new(),
-            client_kexinit_payload: Vec::new(),
-            server_kexinit_payload: Vec::new(),
+            kex: KeyExchange {
+                client_ident: String::new(),
+                client_kexinit_payload: Vec::new(),
+                server_kexinit_payload: Vec::new(),
+                finished: false,
+            },
+
+            session_id: Vec::new(),
+            iv_client_server: Vec::new(),
+            iv_server_client: Vec::new(),
+            enc_key_client_server: Vec::new(),
+            enc_key_server_client: Vec::new(),
+            integrity_key_client_server: Vec::new(),
+            integrity_key_server_client: Vec::new(),
         }
     }
 
@@ -54,17 +77,15 @@ impl Session {
             self.stream.peer_addr().unwrap()
         );
 
-        self.client_ident = self
+        self.kex.client_ident = self
             .ident_exchange()
             .context("Failed during ident exchange")?;
 
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
             if let Some(reason) = disconnect {
-                if reason != DisconnectReason::SSH_DISCONNECT_BY_APPLICATION {
-                    debug!("Sending disconnect packet, reason = {:?}", reason);
-                    self.disconnect(reason)?;
-                }
+                debug!("Sending disconnect packet, reason = {:?}", reason);
+                self.disconnect(reason)?;
                 break;
             }
         }
@@ -76,8 +97,32 @@ impl Session {
         self.sequence_number
     }
 
-    pub fn shared_secret(&self) -> &Option<Vec<u8>> {
-        &self.shared_secret
+    pub fn kex(&self) -> &KeyExchange {
+        &self.kex
+    }
+
+    pub fn iv_client_server(&self) -> &Vec<u8> {
+        &self.iv_client_server
+    }
+
+    pub fn iv_server_client(&self) -> &Vec<u8> {
+        &self.iv_server_client
+    }
+
+    pub fn enc_key_client_server(&self) -> &Vec<u8> {
+        &self.enc_key_client_server
+    }
+
+    pub fn enc_key_server_client(&self) -> &Vec<u8> {
+        &self.enc_key_server_client
+    }
+
+    pub fn integrity_key_server_client(&self) -> &Vec<u8> {
+        &self.integrity_key_server_client
+    }
+
+    pub fn integrity_key_client_server(&self) -> &Vec<u8> {
+        &self.integrity_key_client_server
     }
 
     // RFC 4253 § 4.2
@@ -127,7 +172,7 @@ impl Session {
 
     // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
-        let packet = decode_packet(&self.stream)?;
+        let packet = decode_packet(&self.stream, self)?;
         let msg_type = packet.message_type()?;
         trace!(
             "Received message of type = {:?}, sequence_number = {}",
@@ -154,13 +199,28 @@ impl Session {
             MessageType::SSH_MSG_NEWKEYS => {
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, self).build()?;
                 self.send_packet(&packet)?;
+                self.kex.finished = true;
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                self.shared_secret = Some(
-                    self.key_exchange(&mut reader)
-                        .context("Failed during handling SSH_MSG_KEX_ECDH_INIT")?,
-                );
+                let (k, h) = self.key_exchange(&mut reader)?;
+
+                let k = encode_mpint(&k);
+                let k = k.as_slice();
+                let h = h.as_slice();
+
+                debug!("k = {:02x?}", k);
+                debug!("h = {:02x?}", h);
+
+                self.session_id = h.to_vec();
+                self.iv_client_server = hash(&[k, h, b"A", h].concat())?;
+                self.iv_server_client = hash(&[k, h, b"B", h].concat())?;
+                self.enc_key_client_server =
+                    hash(&[k, h, b"C", h].concat())?[0..(128 / 8)].to_vec();
+                self.enc_key_server_client =
+                    hash(&[k, h, b"D", h].concat())?[0..(128 / 8)].to_vec();
+                self.integrity_key_client_server = hash(&[k, h, b"E", h].concat())?;
+                self.integrity_key_server_client = hash(&[k, h, b"F", h].concat())?;
             }
 
             _ => {

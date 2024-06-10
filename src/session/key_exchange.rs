@@ -3,7 +3,7 @@ use log::debug;
 use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 
 use crate::{
-    crypto::{compute_shared_secret, hash_and_sign, ComputeSharedSecretResult},
+    crypto::{compute_shared_secret, hash_and_sign},
     decoding::PayloadReader,
     encoding::{encode_mpint, encode_string, PacketBuilder},
     types::MessageType,
@@ -12,7 +12,9 @@ use crate::{
 
 impl Session {
     // RFC 5656 § 4
-    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<Vec<u8>> {
+    /// # Returns
+    /// `(shared_secret, hash)`
+    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
         // Client's public key
@@ -21,17 +23,13 @@ impl Session {
         // Server's public host key
         let k_s = encode_public_key("nistp256", &self.server_config.host_key.public_key);
 
-        let ComputeSharedSecretResult {
-            secret: k,
-            eph_public_key: q_s,
-            hash_type,
-        } = compute_shared_secret(&q_c).context("Failed computing shared secret")?;
+        let (k, q_s) = compute_shared_secret(&q_c).context("Failed computing shared secret")?;
 
         let hash_data = concat_hash_data(
-            self.client_ident.as_bytes(),
+            self.kex().client_ident.as_bytes(),
             self.server_config.ident_string.as_bytes(),
-            &self.client_kexinit_payload,
-            &self.server_kexinit_payload,
+            &self.kex().client_kexinit_payload,
+            &self.kex().server_kexinit_payload,
             &k_s,
             &q_c,
             &q_s,
@@ -45,8 +43,8 @@ impl Session {
             );
         }
 
-        let signed_exchange_hash =
-            hash_and_sign(&self.server_config.host_key.ec_pair, &hash_data, hash_type)
+        let (hash, signed_exchange_hash) =
+            hash_and_sign(&self.server_config.host_key.ec_pair, &hash_data)
                 .context("Failed to hash and sign")?;
 
         let signature_enc = encode_signature(&signed_exchange_hash)?;
@@ -59,7 +57,7 @@ impl Session {
         self.send_packet(&packet)?;
 
         debug!("--- END KEY EXCHANGE ---");
-        Ok(k.to_vec())
+        Ok((k, hash))
     }
 }
 

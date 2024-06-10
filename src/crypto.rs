@@ -5,7 +5,7 @@ use openssl::{
     derive::Deriver,
     ec::{EcGroup, EcKey, EcPoint, PointConversionForm},
     ecdsa::EcdsaSig,
-    hash::{hash, MessageDigest},
+    hash::MessageDigest,
     nid::Nid,
     pkey::{PKey, Private, Public},
     rand::rand_bytes,
@@ -24,39 +24,31 @@ pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {
 #[derive(Debug, Clone)]
 pub struct HostKey {
     pub public_key: Vec<u8>,
-
-    pub private_key_pem: Vec<u8>,
-    pub public_key_pem: Vec<u8>,
-
     pub ec_pair: EcKey<Private>,
 }
 
 pub fn generate_host_key() -> Result<HostKey> {
     let mut ctx = BigNumContext::new()?;
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+
     let ec_pair = EcKey::generate(&group)?;
-    let pair = HostKey {
+    let host_key = HostKey {
         public_key: ec_pair.public_key().to_bytes(
             &group,
             PointConversionForm::UNCOMPRESSED,
             &mut ctx,
         )?,
-        private_key_pem: ec_pair.private_key_to_pem()?,
-        public_key_pem: ec_pair.public_key_to_pem()?,
         ec_pair,
     };
 
-    Ok(pair)
+    Ok(host_key)
 }
 
 // TODO: Use negotiated algorithms instead of hardcoded ones
 
-pub struct ComputeSharedSecretResult {
-    pub secret: BigNum,
-    pub eph_public_key: Vec<u8>,
-    pub hash_type: MessageDigest,
-}
-pub fn compute_shared_secret(peer_key: &[u8]) -> Result<ComputeSharedSecretResult> {
+/// # Returns
+/// `(secret, eph_public_key)`
+pub fn compute_shared_secret(peer_key: &[u8]) -> Result<(BigNum, Vec<u8>)> {
     let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
     let mut ctx = BigNumContext::new()?;
 
@@ -76,28 +68,25 @@ pub fn compute_shared_secret(peer_key: &[u8]) -> Result<ComputeSharedSecretResul
     let secret_bytes = deriver.derive_to_vec()?;
     let secret = BigNum::from_slice(&secret_bytes)?;
 
-    Ok(ComputeSharedSecretResult {
-        secret,
-        eph_public_key,
-        hash_type: MessageDigest::sha256(),
-    })
+    Ok((secret, eph_public_key))
 }
 
-pub fn hash_and_sign(
-    private_key: &EcKey<Private>,
-    data: &[u8],
-    hash_type: MessageDigest,
-) -> Result<EcdsaSig> {
-    // No clue why it has to be hashed twice, otherwise openssh client won't accept the signature
-    let hash_first = hash(hash_type, data)?;
-    let hash_final = hash(hash_type, &hash_first)?.to_vec();
+pub fn hash(data: &[u8]) -> Result<Vec<u8>> {
+    Ok(openssl::hash::hash(MessageDigest::sha256(), data)?.to_vec())
+}
+
+/// # Returns
+/// `(hash, signature)`
+pub fn hash_and_sign(private_key: &EcKey<Private>, data: &[u8]) -> Result<(Vec<u8>, EcdsaSig)> {
+    let hashed_data = hash(data)?;
     if cfg!(debug_assertions) {
-        debug!("hash = {:02x?}", hash_final);
+        debug!("hash = {:02x?}", hashed_data);
     }
 
-    let signature = EcdsaSig::sign(&hash_final, private_key.as_ref())?;
+    let ecdsa_hash = hash(&hashed_data)?;
+    let signed = EcdsaSig::sign(&ecdsa_hash, private_key.as_ref())?;
 
-    Ok(signature)
+    Ok((hashed_data, signed))
 }
 
 // RFC 4253 § 6.4

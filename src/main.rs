@@ -42,6 +42,8 @@ fn connect() -> Result<()> {
 
             // RFC 5656 § 10.1
             server_host_key_algorithms: vec!["ecdsa-sha2-nistp256".to_owned()],
+
+            // RFC 4344 § 4
             encryption_algorithms_client_to_server: vec!["aes128-ctr".to_owned()],
             encryption_algorithms_server_to_client: vec!["aes128-ctr".to_owned()],
 
@@ -58,25 +60,6 @@ fn connect() -> Result<()> {
         ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
     };
 
-    if cfg!(debug_assertions) {
-        debug!(
-            "public_key: {:?}",
-            String::from_utf8(server_config.host_key.public_key_pem.to_vec())
-                .unwrap()
-                .lines()
-                .nth(1)
-                .unwrap()
-        );
-        debug!(
-            "private_key: {:?}",
-            String::from_utf8(server_config.host_key.private_key_pem.to_vec())
-                .unwrap()
-                .lines()
-                .nth(1)
-                .unwrap()
-        );
-    }
-
     let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))?;
 
     for client in listener.incoming() {
@@ -92,13 +75,13 @@ fn connect() -> Result<()> {
 
         match handle.join() {
             Ok(val) => match val {
-                Ok(()) => debug!("Thread for address {} finished successfully", client_addr),
+                Ok(()) => debug!("Session for address {} finished successfully", client_addr),
                 Err(err) => error!(
-                    "Thread for address {} finished with error: {:?}",
+                    "Session for address {} finished with error: {:?}",
                     client_addr, err
                 ),
             },
-            Err(_) => error!("Thread for address {} panicked", client_addr),
+            Err(_) => error!("Session for address {} panicked", client_addr),
         }
     }
 

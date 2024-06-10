@@ -51,7 +51,7 @@ impl Session {
         debug!("--- BEGIN ALGORITHM NEGOTIATION ---");
         packet
             .payload_with_msg_type()
-            .clone_into(&mut self.client_kexinit_payload);
+            .clone_into(&mut self.kex.client_kexinit_payload);
 
         debug!("Decoding client algorithms...");
 
@@ -64,7 +64,7 @@ impl Session {
         let (server_algorithms_payload, server_algorithms_packet) =
             self.encode_server_algorithms(&self.server_config.algorithms)?;
 
-        server_algorithms_payload.clone_into(&mut self.server_kexinit_payload);
+        server_algorithms_payload.clone_into(&mut self.kex.server_kexinit_payload);
 
         debug!("Sending server algorithms...");
         debug!("server_algorithms = {:#?}", &self.server_config.algorithms);

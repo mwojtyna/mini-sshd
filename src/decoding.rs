@@ -6,9 +6,11 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
+use openssl::symm::{Cipher, Crypter, Mode};
 
 use crate::{
     encoding::{PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
+    session::Session,
     types::MessageType,
 };
 
@@ -99,9 +101,65 @@ impl DecodedPacket {
 }
 
 // RFC 4253 § 6
-pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
-    trace!("-- BEGIN PACKET DECODING --");
+pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPacket> {
+    trace!(
+        "-- BEGIN PACKET DECODING{} --",
+        if session.kex().finished {
+            " (ENCRYPTED)"
+        } else {
+            ""
+        }
+    );
 
+    let decoded_packet = if session.kex().finished {
+        decoded_packet_encrypted(
+            stream,
+            session.enc_key_client_server(),
+            session.iv_client_server(),
+        )?
+    } else {
+        decode_packet_unencrypted(stream)?
+    };
+
+    trace!(
+        "-- END PACKET DECODING{} --",
+        if session.kex().finished {
+            " (ENCRYPTED)"
+        } else {
+            ""
+        }
+    );
+    Ok(decoded_packet)
+}
+fn decoded_packet_encrypted(stream: &TcpStream, key: &[u8], iv: &[u8]) -> Result<DecodedPacket> {
+    let mut reader = BufReader::new(stream);
+    let mut first_block = vec![0u8; 16];
+    reader.read_exact(&mut first_block)?;
+
+    let mut decrypter = Crypter::new(Cipher::aes_128_ctr(), Mode::Decrypt, key, Some(iv))?;
+    decrypter.pad(false);
+
+    let mut first_block_dec = vec![0u8; 16];
+    decrypter.update(&first_block, &mut first_block_dec)?;
+
+    let packet_length_bytes = &first_block_dec[0..PACKET_LENGTH_SIZE];
+    let packet_length = u8_array_to_u32(packet_length_bytes)?;
+    trace!("packet_length = {:?}", packet_length);
+
+    let mut packet_enc = vec![0u8; packet_length as usize];
+    reader.read_exact(&mut packet_enc)?;
+
+    let mut packet_dec = first_block_dec[PACKET_LENGTH_SIZE..].to_vec();
+    let mut rest = vec![0u8; packet_length as usize];
+    decrypter.update(&packet_enc, &mut rest)?;
+    packet_dec.extend(rest);
+
+    trace!("packet = {:?}", packet_dec);
+
+    let payload = get_payload(packet_dec, packet_length)?;
+    Ok(DecodedPacket { payload })
+}
+fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
     let mut reader = BufReader::new(stream);
 
     let mut packet_length_bytes = [0u8; PACKET_LENGTH_SIZE];
@@ -111,32 +169,32 @@ pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
     let packet_length = u8_array_to_u32(&packet_length_bytes)?;
     trace!("packet_length = {} bytes", packet_length);
 
-    let mut padding_length_bytes = [0u8; 1];
+    let mut packet = vec![0u8; packet_length as usize];
     reader
-        .read_exact(&mut padding_length_bytes)
-        .context("Failed reading padding_length")?;
-    let padding_length = padding_length_bytes[0];
+        .read_exact(&mut packet)
+        .context("Failed reading packet")?;
+
+    let payload = get_payload(packet, packet_length)?;
+    Ok(DecodedPacket { payload })
+}
+fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
+    let mut reader = packet.into_iter();
+    let reader = reader.by_ref();
+
+    let padding_length = *reader.take(1).collect::<Vec<u8>>().first().unwrap();
     trace!("padding_length = {} bytes", padding_length);
 
-    let n1: u32 = packet_length - (padding_length as u32) - 1;
-    let mut payload = vec![0u8; n1 as usize];
-    reader
-        .read_exact(&mut payload)
-        .context("Failed reading payload")?;
+    let n1 = packet_length - (padding_length as u32) - 1;
+    let payload = reader.take(n1 as usize).collect::<Vec<u8>>();
 
     if log_enabled!(Level::Trace) {
         trace!("payload = {:?}", String::from_utf8_lossy(&payload));
     }
 
-    let mut random_padding = vec![0u8; padding_length as usize];
-    reader
-        .read_exact(&mut random_padding)
-        .context("Failed reading random padding")?;
+    let random_padding = reader.take(padding_length as usize).collect::<Vec<u8>>();
     trace!("random_padding = {:?}", random_padding);
 
-    // TODO: mac (initially no message authentication has been negotiated, so mac isn't added)
-
-    let bytes_left = packet_length - 1 - n1 as u32 - padding_length as u32; // TODO: mac
+    let bytes_left = packet_length - 1 - n1 - padding_length as u32;
     if bytes_left != 0 {
         return Err(anyhow!(
             "Didn't decode entire packet, {} bytes left",
@@ -144,8 +202,7 @@ pub fn decode_packet(stream: &TcpStream) -> Result<DecodedPacket> {
         ));
     }
 
-    trace!("-- END PACKET DECODING --");
-    Ok(DecodedPacket { payload })
+    Ok(payload)
 }
 
 pub fn u8_array_to_u32(array: &[u8]) -> Result<u32> {
