@@ -90,8 +90,8 @@ pub fn hash_and_sign(private_key: &EcKey<Private>, data: &[u8]) -> Result<(Vec<u
 }
 
 // RFC 4253 § 6.4
-pub fn compute_mac(shared_secret: &[u8], sequence_num: u32, packet: &[u8]) -> Result<Vec<u8>> {
-    let pkey = PKey::hmac(shared_secret)?;
+pub fn compute_mac(key: &[u8], sequence_num: u32, packet: &[u8]) -> Result<Vec<u8>> {
+    let pkey = PKey::hmac(key)?;
     let mut signer = Signer::new(MessageDigest::sha256(), &pkey)?;
     signer.update(&encode_u32(sequence_num))?;
     signer.update(packet)?;

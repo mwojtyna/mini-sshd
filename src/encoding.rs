@@ -2,19 +2,28 @@ use std::mem::size_of;
 
 use anyhow::Result;
 use log::{log_enabled, trace, Level};
-use openssl::bn::BigNumRef;
+use openssl::{
+    bn::BigNumRef,
+    symm::{Cipher, Crypter, Mode},
+};
 
-use crate::{crypto::generate_random_array, session::Session, types::MessageType};
+use crate::{
+    crypto::{compute_mac, generate_random_array},
+    session::{self, Session},
+    types::MessageType,
+};
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
 pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
 
 const MIN_PADDING: u8 = 4;
+const MAC_LENGTH: usize = 32;
 
 pub struct PacketBuilder<'a> {
     payload: Vec<u8>,
     session: &'a Session,
+    encrypt: bool,
 }
 
 #[allow(dead_code)]
@@ -23,20 +32,23 @@ impl<'a> PacketBuilder<'a> {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,
+            encrypt: session.kex().finished,
         }
     }
 
     // RFC 4253 § 6
     pub fn build(self) -> Result<Vec<u8>> {
-        trace!("-- BEGIN PACKET ENCODING --");
+        trace!(
+            "-- BEGIN PACKET ENCODING{} --",
+            if self.encrypt { " (ENCRYPTED)" } else { "" }
+        );
 
-        // TODO:
-        const CIPHER_BLOCK_SIZE: usize = 8;
+        let block_size = if self.encrypt { 16 } else { 8 };
 
         let p = PACKET_LENGTH_SIZE + PADDING_LENGTH_SIZE + self.payload.len();
-        let mut padding_length = (CIPHER_BLOCK_SIZE - (p % CIPHER_BLOCK_SIZE)) as u8;
+        let mut padding_length = (block_size - (p % block_size)) as u8;
         if padding_length < MIN_PADDING {
-            padding_length += CIPHER_BLOCK_SIZE as u8;
+            padding_length += block_size as u8;
         }
 
         let packet_length: u32 =
@@ -57,9 +69,34 @@ impl<'a> PacketBuilder<'a> {
         packet.push(padding_length);
         packet.extend_from_slice(&self.payload);
         packet.extend(random_padding);
-        // TODO: mac
 
-        trace!("-- END PACKET ENCODING --");
+        if self.encrypt {
+            // let mac = compute_mac(
+            //     self.session.integrity_key_server_client(),
+            //     self.session.sequence_number(),
+            //     &packet,
+            // )?;
+            // trace!("mac = {:?}", mac);
+            // packet.extend(mac);
+
+            let mut packet_enc =
+                vec![0u8; PACKET_LENGTH_SIZE + packet_length as usize /* + MAC_LENGTH */];
+            let mut encrypter = Crypter::new(
+                Cipher::aes_128_ctr(),
+                Mode::Encrypt,
+                self.session.enc_key_server_client(),
+                Some(self.session.iv_server_client()),
+            )?;
+            encrypter.pad(false);
+            encrypter.update(&packet, &mut packet_enc)?;
+
+            packet = packet_enc;
+        }
+
+        trace!(
+            "-- END PACKET ENCODING{} --",
+            if self.encrypt { " (ENCRYPTED)" } else { "" }
+        );
         Ok(packet)
     }
 
