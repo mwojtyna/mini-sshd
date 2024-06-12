@@ -75,7 +75,6 @@ pub enum DisconnectReason {
     SSH_DISCONNECT_ILLEGAL_USER_NAME = 15,
 }
 
-// TODO: Enum for algo name, HashMap<Enum, AlgoDetails> for algos
 macro_rules! def_enum {
     ($vis:vis $name:ident => $ty:ty {
         $($variant:ident => $val:expr),+
@@ -109,6 +108,7 @@ def_enum!(pub HostKeyAlgorithm => &'static str {
 });
 #[derive(Clone)]
 pub struct HostKeyAlgorithmDetails {
+    pub hash: MessageDigest,
     pub curve: Nid,
 }
 

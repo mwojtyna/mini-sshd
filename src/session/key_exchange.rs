@@ -1,6 +1,6 @@
-use anyhow::{anyhow, Context, Result};
-use log::debug;
-use openssl::{bn::BigNum, ecdsa::EcdsaSigRef, nid::Nid};
+use anyhow::{Context, Result};
+use log::{debug, trace};
+use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 
 use crate::{
     decoding::PayloadReader,
@@ -23,17 +23,13 @@ impl Session<'_> {
         // Client's public key
         let q_c = reader.next_string()?;
 
+        let server_host_key_algorithm =
+            &self.algorithms.as_ref().unwrap().server_host_key_algorithm;
+
         let host_key = &self
             .server_config
             .host_key
-            .get(
-                self.algorithms
-                    .as_ref()
-                    .unwrap()
-                    .server_host_key_algorithm
-                    .name
-                    .as_str(),
-            )
+            .get(server_host_key_algorithm.name.as_str())
             .unwrap();
 
         // Server's public host key
@@ -61,7 +57,7 @@ impl Session<'_> {
             &k,
         )?;
         if cfg!(debug_assertions) {
-            debug!(
+            trace!(
                 "concatenated = {:02x?}, length = {}",
                 &hash_data,
                 hash_data.len()
@@ -72,7 +68,7 @@ impl Session<'_> {
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
             .context("Failed to hash and sign")?;
 
-        let signature_enc = encode_signature(&signed_exchange_hash)?;
+        let signature_enc = encode_signature(server_host_key_algorithm, &signed_exchange_hash)?;
 
         let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY, self)
             .write_string(&k_s)
@@ -110,45 +106,27 @@ fn concat_hash_data(
 }
 
 // RFC 5656 § 3.1
-/// # Parameters:
-/// - `curve_name` - name of the curve (ex: "nistp256")
-/// - `key` - public key as a byte array
 pub fn encode_ec_public_key(
     algorithm: &Algorithm<HostKeyAlgorithmDetails>,
     key: &[u8],
 ) -> Result<Vec<u8>> {
-    let before_ident = algorithm.name.split('-').collect::<Vec<&str>>()[..2].join("-");
-    let ident = match algorithm.details.curve {
-        Nid::X9_62_PRIME256V1 => "nistp256",
-        Nid::SECP384R1 => "nistp384",
-        Nid::SECP521R1 => "nistp521",
-        _ => return Err(anyhow!("Unsupported curve")),
-    };
+    let split: Vec<&str> = algorithm.name.split('-').collect();
+    let ident = split.last().unwrap();
 
-    let name = before_ident + "-" + ident;
     let blob = [encode_string(ident.as_bytes()), encode_string(key)].concat();
 
-    Ok([encode_string(name.as_bytes()), blob].concat())
+    Ok([encode_string(algorithm.name.as_bytes()), blob].concat())
 }
 
 // RFC 5656 § 3.1.1
-pub fn encode_signature(sig: &EcdsaSigRef) -> Result<Vec<u8>> {
+pub fn encode_signature(
+    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
+    sig: &EcdsaSigRef,
+) -> Result<Vec<u8>> {
     let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
-    if cfg!(debug_assertions) {
-        debug!(
-            "r = {}, length = {}",
-            sig.r().to_hex_str().unwrap(),
-            sig.r().num_bytes()
-        );
-        debug!(
-            "s = {}, length = {}",
-            sig.s().to_hex_str().unwrap(),
-            sig.s().num_bytes()
-        );
-    }
 
     Ok([
-        encode_string(b"ecdsa-sha2-nistp256"),
+        encode_string(algorithm.name.as_bytes()),
         encode_string(&signature_blob),
     ]
     .concat())

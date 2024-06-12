@@ -90,7 +90,7 @@ impl Crypto {
         private_key: &EcKey<Private>,
         data: &[u8],
     ) -> Result<(Vec<u8>, EcdsaSig)> {
-        let hashed_data = Self::hash(data, self.algorithms.kex_algorithm.details.hash)?;
+        let hashed_data = Self::hash(data, self.algorithms.server_host_key_algorithm.details.hash)?;
         if cfg!(debug_assertions) {
             debug!("hash = {:02x?}", hashed_data);
         }

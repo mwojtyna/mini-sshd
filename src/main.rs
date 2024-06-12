@@ -40,11 +40,11 @@ fn main() -> Result<()> {
                 curve: Nid::X9_62_PRIME256V1
             },
             KexAlgorithm::ECDH_SHA2_NISTP384 => KexAlgorithmDetails {
-                hash: MessageDigest::sha256(),
+                hash: MessageDigest::sha384(),
                 curve: Nid::SECP384R1
             },
             KexAlgorithm::ECDH_SHA2_NISTP521 => KexAlgorithmDetails {
-                hash: MessageDigest::sha256(),
+                hash: MessageDigest::sha512(),
                 curve: Nid::SECP521R1
             },
         },
@@ -52,12 +52,15 @@ fn main() -> Result<()> {
         // RFC 5656 § 10.1
         server_host_key_algorithms: indexmap! {
             HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha256(),
                 curve: Nid::X9_62_PRIME256V1
             },
             HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha384(),
                 curve: Nid::SECP384R1
             },
             HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha512(),
                 curve: Nid::SECP521R1
             },
         },

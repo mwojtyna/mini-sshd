@@ -363,8 +363,8 @@ impl Session<'_> {
             let preffered_algorithm = intersection
                 .into_iter()
                 .min_by_key(|intersection_algo| {
-                    server_algorithms
-                        .keys()
+                    client_algorithms
+                        .iter()
                         .position(|server_algo| server_algo == intersection_algo)
                         .unwrap()
                 })

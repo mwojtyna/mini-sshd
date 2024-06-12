@@ -220,8 +220,10 @@ impl<'a> Session<'a> {
                 let k = k.as_slice();
                 let h = h.as_slice();
 
-                debug!("k = {:02x?}", k);
-                debug!("h = {:02x?}", h);
+                if cfg!(debug_assertions) {
+                    debug!("k = {:02x?}", k);
+                    debug!("h = {:02x?}", h);
+                }
 
                 self.session_id = h.to_vec();
                 self.iv_client_server = Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?;
