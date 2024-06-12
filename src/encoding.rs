@@ -7,22 +7,17 @@ use openssl::{
     symm::{Cipher, Crypter, Mode},
 };
 
-use crate::{
-    crypto::{compute_mac, generate_random_array},
-    session::{self, Session},
-    types::MessageType,
-};
+use crate::{crypto::Crypto, session::Session, types::MessageType};
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
 pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
 
 const MIN_PADDING: u8 = 4;
-const MAC_LENGTH: usize = 32;
 
 pub struct PacketBuilder<'a> {
     payload: Vec<u8>,
-    session: &'a Session,
+    session: &'a Session<'a>,
     encrypt: bool,
 }
 
@@ -53,7 +48,7 @@ impl<'a> PacketBuilder<'a> {
 
         let packet_length: u32 =
             (PADDING_LENGTH_SIZE + self.payload.len() + padding_length as usize) as u32;
-        let random_padding = generate_random_array(padding_length.into())?;
+        let random_padding = Crypto::generate_random_array(padding_length.into())?;
 
         trace!("packet_length = {} bytes", packet_length);
         trace!("padding_length = {} bytes", padding_length);
@@ -130,7 +125,7 @@ impl<'a> PacketBuilder<'a> {
     }
 
     // RFC 4251 § 5
-    pub fn write_name_list(mut self, names: &[String]) -> Self {
+    pub fn write_name_list(mut self, names: &[&str]) -> Self {
         self.payload.extend(encode_name_list(names));
         self
     }
@@ -159,7 +154,7 @@ pub fn encode_u32(value: u32) -> [u8; 4] {
     value.to_be_bytes()
 }
 
-pub fn encode_name_list(names: &[String]) -> Vec<u8> {
+pub fn encode_name_list(names: &[&str]) -> Vec<u8> {
     trace!("-- BEGIN NAME-LIST ENCODING --");
 
     let joined = names.join(",");

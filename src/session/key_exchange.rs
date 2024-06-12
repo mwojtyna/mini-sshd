@@ -1,29 +1,54 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use log::debug;
-use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
+use openssl::{bn::BigNum, ecdsa::EcdsaSigRef, nid::Nid};
 
 use crate::{
-    crypto::{compute_shared_secret, hash_and_sign},
     decoding::PayloadReader,
     encoding::{encode_mpint, encode_string, PacketBuilder},
-    types::MessageType,
+    types::{HostKeyAlgorithmDetails, MessageType},
     Session,
 };
 
-impl Session {
+use super::algorithm_negotiation::Algorithm;
+
+impl Session<'_> {
     // RFC 5656 § 4
     /// # Returns
     /// `(shared_secret, hash)`
     pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
+        let crypto = self.crypto.as_ref().unwrap();
+
         // Client's public key
         let q_c = reader.next_string()?;
 
-        // Server's public host key
-        let k_s = encode_public_key("nistp256", &self.server_config.host_key.public_key);
+        let host_key = &self
+            .server_config
+            .host_key
+            .get(
+                self.algorithms
+                    .as_ref()
+                    .unwrap()
+                    .server_host_key_algorithm
+                    .name
+                    .as_str(),
+            )
+            .unwrap();
 
-        let (k, q_s) = compute_shared_secret(&q_c).context("Failed computing shared secret")?;
+        // Server's public host key
+        let k_s = encode_ec_public_key(
+            &self
+                .algorithms()
+                .as_ref()
+                .unwrap()
+                .server_host_key_algorithm,
+            &host_key.public_key,
+        )?;
+
+        let (k, q_s) = crypto
+            .compute_shared_secret(&q_c)
+            .context("Failed computing shared secret")?;
 
         let hash_data = concat_hash_data(
             self.kex().client_ident.as_bytes(),
@@ -43,9 +68,9 @@ impl Session {
             );
         }
 
-        let (hash, signed_exchange_hash) =
-            hash_and_sign(&self.server_config.host_key.ec_pair, &hash_data)
-                .context("Failed to hash and sign")?;
+        let (hash, signed_exchange_hash) = crypto
+            .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
+            .context("Failed to hash and sign")?;
 
         let signature_enc = encode_signature(&signed_exchange_hash)?;
 
@@ -88,11 +113,22 @@ fn concat_hash_data(
 /// # Parameters:
 /// - `curve_name` - name of the curve (ex: "nistp256")
 /// - `key` - public key as a byte array
-pub fn encode_public_key(curve_name: &str, key: &[u8]) -> Vec<u8> {
-    let name = "ecdsa-sha2-".to_owned() + curve_name;
-    let blob = [encode_string(curve_name.as_bytes()), encode_string(key)].concat();
+pub fn encode_ec_public_key(
+    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
+    key: &[u8],
+) -> Result<Vec<u8>> {
+    let before_ident = algorithm.name.split('-').collect::<Vec<&str>>()[..2].join("-");
+    let ident = match algorithm.details.curve {
+        Nid::X9_62_PRIME256V1 => "nistp256",
+        Nid::SECP384R1 => "nistp384",
+        Nid::SECP521R1 => "nistp521",
+        _ => return Err(anyhow!("Unsupported curve")),
+    };
 
-    [encode_string(name.as_bytes()), blob].concat()
+    let name = before_ident + "-" + ident;
+    let blob = [encode_string(ident.as_bytes()), encode_string(key)].concat();
+
+    Ok([encode_string(name.as_bytes()), blob].concat())
 }
 
 // RFC 5656 § 3.1.1

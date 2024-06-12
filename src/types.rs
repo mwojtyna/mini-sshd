@@ -1,4 +1,5 @@
 use num_derive::FromPrimitive;
+use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
 
 #[allow(non_camel_case_types)]
 #[derive(FromPrimitive, Debug, PartialEq)]
@@ -72,4 +73,72 @@ pub enum DisconnectReason {
     SSH_DISCONNECT_AUTH_CANCELLED_BY_USER = 13,
     SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE = 14,
     SSH_DISCONNECT_ILLEGAL_USER_NAME = 15,
+}
+
+// TODO: Enum for algo name, HashMap<Enum, AlgoDetails> for algos
+macro_rules! def_enum {
+    ($vis:vis $name:ident => $ty:ty {
+        $($variant:ident => $val:expr),+
+        $(,)?
+    }) => {
+        $vis struct $name;
+
+        impl $name {
+            $(
+                pub const $variant: $ty = $val;
+            )+
+        }
+    };
+}
+
+def_enum!(pub KexAlgorithm => &'static str {
+    ECDH_SHA2_NISTP256 => "ecdh-sha2-nistp256",
+    ECDH_SHA2_NISTP384 => "ecdh-sha2-nistp384",
+    ECDH_SHA2_NISTP521 => "ecdh-sha2-nistp521"
+});
+#[derive(Clone)]
+pub struct KexAlgorithmDetails {
+    pub hash: MessageDigest,
+    pub curve: Nid,
+}
+
+def_enum!(pub HostKeyAlgorithm => &'static str {
+    ECDSA_SHA2_NISTP256 => "ecdsa-sha2-nistp256",
+    ECDSA_SHA2_NISTP384 => "ecdsa-sha2-nistp384",
+    ECDSA_SHA2_NISTP521 => "ecdsa-sha2-nistp521",
+});
+#[derive(Clone)]
+pub struct HostKeyAlgorithmDetails {
+    pub curve: Nid,
+}
+
+def_enum!(pub EncryptionAlgorithm => &'static str {
+    AES128_CTR => "aes128-ctr",
+});
+#[derive(Clone)]
+pub struct EncryptionAlgorithmDetails {
+    pub cipher: Cipher,
+}
+
+def_enum!(pub HmacAlgorithm => &'static str {
+   HMAC_SHA2_256 => "hmac-sha2-256",
+});
+#[derive(Clone)]
+pub struct HmacAlgorithmDetails {
+    pub hash: MessageDigest,
+}
+
+def_enum!(pub CompressionAlgorithm => &'static str {
+    NONE => "none",
+});
+#[derive(Clone)]
+pub struct CompressionAlgorithmDetails {}
+
+#[macro_export]
+macro_rules! hashmap {
+    ($( $key: expr => $val: expr ),*) => {{
+         let mut map = ::std::collections::HashMap::new();
+         $( map.insert($key, $val); )*
+         map
+    }}
 }

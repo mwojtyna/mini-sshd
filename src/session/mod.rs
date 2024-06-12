@@ -8,7 +8,7 @@ use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
 
 use crate::{
-    crypto::hash,
+    crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::{encode_mpint, PacketBuilder},
     types::{DisconnectReason, MessageType},
@@ -18,12 +18,13 @@ use crate::{
 pub mod algorithm_negotiation;
 pub mod key_exchange;
 
-pub struct Session {
+pub struct Session<'a> {
     stream: TcpStream,
     sequence_number: u32,
 
-    server_config: ServerConfig,
+    server_config: &'a ServerConfig,
     algorithms: Option<Algorithms>,
+    crypto: Option<Crypto>,
 
     kex: KeyExchange,
 
@@ -37,6 +38,7 @@ pub struct Session {
     integrity_key_server_client: Vec<u8>,
 }
 
+#[derive(Default)]
 pub struct KeyExchange {
     pub client_ident: String,
     pub client_kexinit_payload: Vec<u8>,
@@ -44,21 +46,17 @@ pub struct KeyExchange {
     pub finished: bool,
 }
 
-impl Session {
-    pub fn new(stream: TcpStream, server_config: ServerConfig) -> Self {
+impl<'a> Session<'a> {
+    pub fn new(stream: TcpStream, server_config: &'a ServerConfig) -> Self {
         Session {
             stream,
             sequence_number: 0,
 
             server_config,
             algorithms: None,
+            crypto: None,
 
-            kex: KeyExchange {
-                client_ident: String::new(),
-                client_kexinit_payload: Vec::new(),
-                server_kexinit_payload: Vec::new(),
-                finished: false,
-            },
+            kex: KeyExchange::default(),
 
             session_id: Vec::new(),
             iv_client_server: Vec::new(),
@@ -95,6 +93,10 @@ impl Session {
 
     pub fn sequence_number(&self) -> u32 {
         self.sequence_number
+    }
+
+    pub fn algorithms(&self) -> &Option<Algorithms> {
+        &self.algorithms
     }
 
     pub fn kex(&self) -> &KeyExchange {
@@ -191,10 +193,12 @@ impl Session {
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
 
             MessageType::SSH_MSG_KEXINIT => {
-                self.algorithms = Some(
-                    self.algorithm_negotiation(&packet, &mut reader)
-                        .context("Failed during handling SSH_MSG_KEXINIT")?,
-                );
+                let algorithms = self
+                    .algorithm_negotiation(&packet, &mut reader)
+                    .context("Failed during handling SSH_MSG_KEXINIT")?;
+
+                self.algorithms = Some(algorithms.clone());
+                self.crypto = Some(Crypto::new(algorithms));
             }
             MessageType::SSH_MSG_NEWKEYS => {
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, self).build()?;
@@ -204,6 +208,13 @@ impl Session {
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
                 let (k, h) = self.key_exchange(&mut reader)?;
+                let hash_algo = self
+                    .algorithms()
+                    .as_ref()
+                    .unwrap()
+                    .kex_algorithm
+                    .details
+                    .hash;
 
                 let k = encode_mpint(&k);
                 let k = k.as_slice();
@@ -213,14 +224,16 @@ impl Session {
                 debug!("h = {:02x?}", h);
 
                 self.session_id = h.to_vec();
-                self.iv_client_server = hash(&[k, h, b"A", h].concat())?;
-                self.iv_server_client = hash(&[k, h, b"B", h].concat())?;
+                self.iv_client_server = Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?;
+                self.iv_server_client = Crypto::hash(&[k, h, b"B", h].concat(), hash_algo)?;
                 self.enc_key_client_server =
-                    hash(&[k, h, b"C", h].concat())?[0..(128 / 8)].to_vec();
+                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[0..(128 / 8)].to_vec();
                 self.enc_key_server_client =
-                    hash(&[k, h, b"D", h].concat())?[0..(128 / 8)].to_vec();
-                self.integrity_key_client_server = hash(&[k, h, b"E", h].concat())?;
-                self.integrity_key_server_client = hash(&[k, h, b"F", h].concat())?;
+                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[0..(128 / 8)].to_vec();
+                self.integrity_key_client_server =
+                    Crypto::hash(&[k, h, b"E", h].concat(), hash_algo)?;
+                self.integrity_key_server_client =
+                    Crypto::hash(&[k, h, b"F", h].concat(), hash_algo)?;
             }
 
             _ => {

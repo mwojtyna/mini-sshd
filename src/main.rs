@@ -1,9 +1,16 @@
-use std::{net::TcpListener, thread};
+use std::{collections::HashMap, net::TcpListener, sync::OnceLock, thread};
 
 use anyhow::{Context, Result};
-use crypto::{generate_host_key, HostKey};
+use crypto::{Crypto, EcHostKey};
+use indexmap::indexmap;
 use log::{debug, error};
-use session::{algorithm_negotiation::AlgorithmNegotiation, Session};
+use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
+use session::{algorithm_negotiation::ServerAlgorithms, Session};
+use types::{
+    CompressionAlgorithm, EncryptionAlgorithm, EncryptionAlgorithmDetails, HmacAlgorithm,
+    HmacAlgorithmDetails, HostKeyAlgorithm, HostKeyAlgorithmDetails, KexAlgorithm,
+    KexAlgorithmDetails,
+};
 
 mod crypto;
 mod decoding;
@@ -14,15 +21,91 @@ mod types;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const PORT: usize = 6969;
 
-#[derive(Clone)]
+static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
+
 pub struct ServerConfig {
-    algorithms: AlgorithmNegotiation,
-    host_key: HostKey,
+    algorithms: ServerAlgorithms,
+    host_key: HashMap<&'static str, EcHostKey>,
     ident_string: String,
 }
 
 fn main() -> Result<()> {
     env_logger::builder().format_target(false).init();
+
+    let algorithms = ServerAlgorithms {
+        // RFC 9142 § 4
+        kex_algorithms: indexmap! {
+            KexAlgorithm::ECDH_SHA2_NISTP256 => KexAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1
+            },
+            KexAlgorithm::ECDH_SHA2_NISTP384 => KexAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::SECP384R1
+            },
+            KexAlgorithm::ECDH_SHA2_NISTP521 => KexAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::SECP521R1
+            },
+        },
+
+        // RFC 5656 § 10.1
+        server_host_key_algorithms: indexmap! {
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
+                curve: Nid::X9_62_PRIME256V1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
+                curve: Nid::SECP384R1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
+                curve: Nid::SECP521R1
+            },
+        },
+
+        // RFC 4344 § 4
+        encryption_algorithms_server_to_client: indexmap! {
+            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
+                cipher: Cipher::aes_128_ctr(),
+            },
+        },
+        encryption_algorithms_client_to_server: indexmap! {
+            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
+                cipher: Cipher::aes_128_ctr(),
+            },
+        },
+
+        // RFC 6668 § 2
+        mac_algorithms_server_to_client: indexmap! {
+            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+            }
+        },
+        mac_algorithms_client_to_server: indexmap! {
+            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+            }
+        },
+
+        compression_algorithms_client_to_server: indexmap! {
+            CompressionAlgorithm::NONE => None,
+        },
+        compression_algorithms_server_to_client: indexmap! {
+            CompressionAlgorithm::NONE => None,
+        },
+
+        languages_client_to_server: vec![""],
+        languages_server_to_client: vec![""],
+    };
+    SERVER_CONFIG.get_or_init(|| ServerConfig {
+        algorithms: algorithms.clone(),
+        host_key: hashmap! {
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve).unwrap(),
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve).unwrap(),
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP521).unwrap().curve).unwrap()
+        },
+        ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
+    });
+
     if let Err(err) = connect() {
         error!("{:?}", err);
     }
@@ -31,44 +114,14 @@ fn main() -> Result<()> {
 }
 
 fn connect() -> Result<()> {
-    let server_config = ServerConfig {
-        algorithms: AlgorithmNegotiation {
-            // RFC 9142 § 4
-            kex_algorithms: vec![
-                "ecdh-sha2-nistp256".to_owned(),
-                "ecdh-sha2-nistp381".to_owned(),
-                "ecdh-sha2-nistp521".to_owned(),
-            ],
-
-            // RFC 5656 § 10.1
-            server_host_key_algorithms: vec!["ecdsa-sha2-nistp256".to_owned()],
-
-            // RFC 4344 § 4
-            encryption_algorithms_client_to_server: vec!["aes128-ctr".to_owned()],
-            encryption_algorithms_server_to_client: vec!["aes128-ctr".to_owned()],
-
-            // RFC 6668 § 2
-            mac_algorithms_client_to_server: vec!["hmac-sha2-256".to_owned()],
-            mac_algorithms_server_to_client: vec!["hmac-sha2-256".to_owned()],
-
-            compression_algorithms_client_to_server: vec!["none".to_owned()],
-            compression_algorithms_server_to_client: vec!["none".to_owned()],
-            languages_client_to_server: vec!["".to_owned()],
-            languages_server_to_client: vec!["".to_owned()],
-        },
-        host_key: generate_host_key().context("Failed creating host key")?,
-        ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
-    };
-
     let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))?;
 
     for client in listener.incoming() {
         let stream = client.context("Client is invalid")?;
         let client_addr = stream.peer_addr().unwrap();
-        let server_config = server_config.clone();
 
         let handle = thread::spawn::<_, Result<()>>(|| {
-            let mut session = Session::new(stream, server_config);
+            let mut session = Session::new(stream, SERVER_CONFIG.get().unwrap());
             session.start()?;
             Ok(())
         });
