@@ -99,6 +99,10 @@ impl<'a> Session<'a> {
         &self.algorithms
     }
 
+    pub fn crypto(&self) -> &Option<Crypto> {
+        &self.crypto
+    }
+
     pub fn kex(&self) -> &KeyExchange {
         &self.kex
     }

@@ -1,10 +1,10 @@
 use std::mem::size_of;
 
 use anyhow::Result;
-use log::{log_enabled, trace, Level};
+use log::{info, log_enabled, trace, Level};
 use openssl::{
     bn::BigNumRef,
-    symm::{Cipher, Crypter, Mode},
+    symm::{Crypter, Mode},
 };
 
 use crate::{crypto::Crypto, session::Session, types::MessageType};
@@ -66,24 +66,42 @@ impl<'a> PacketBuilder<'a> {
         packet.extend(random_padding);
 
         if self.encrypt {
-            // let mac = compute_mac(
-            //     self.session.integrity_key_server_client(),
-            //     self.session.sequence_number(),
-            //     &packet,
-            // )?;
-            // trace!("mac = {:?}", mac);
-            // packet.extend(mac);
+            let crypto = self.session.crypto().as_ref().unwrap();
+            // Compute mac for unencrypted packet
+            let mac = crypto.compute_mac(
+                self.session.integrity_key_server_client(),
+                self.session.sequence_number(),
+                &packet,
+            )?;
+            trace!("mac = {:?}", mac);
 
-            let mut packet_enc =
-                vec![0u8; PACKET_LENGTH_SIZE + packet_length as usize /* + MAC_LENGTH */];
+            let algorithms = self.session.algorithms().as_ref().unwrap();
+            let cipher = algorithms
+                .encryption_algorithms_server_to_client
+                .details
+                .cipher;
             let mut encrypter = Crypter::new(
-                Cipher::aes_128_ctr(),
+                cipher,
                 Mode::Encrypt,
                 self.session.enc_key_server_client(),
                 Some(self.session.iv_server_client()),
             )?;
+
+            let mac_length = algorithms
+                .mac_algorithms_server_to_client
+                .details
+                .hash
+                .size();
+            // Allocate vector for encrypted packet with extra space for mac
+            let mut packet_enc =
+                vec![0u8; PACKET_LENGTH_SIZE + packet_length as usize + mac_length];
+
+            // Encrypt packet
             encrypter.pad(false);
             encrypter.update(&packet, &mut packet_enc)?;
+
+            // Overwrite empty space with mac
+            packet_enc[packet.len()..].copy_from_slice(&mac);
 
             packet = packet_enc;
         }
@@ -131,7 +149,6 @@ impl<'a> PacketBuilder<'a> {
     }
 
     // RFC 4251 § 5
-    /// **IMPORTANT**: Not for regular text, but for `string` from [RFC 4251 § 5](https://datatracker.ietf.org/doc/html/rfc4251#section-5). For encoding text convert it to binary format and use `write_bytes`.
     pub fn write_string(mut self, data: &[u8]) -> Self {
         self.payload.extend(encode_string(data));
         self

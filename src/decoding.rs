@@ -116,6 +116,13 @@ pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPac
             stream,
             session.enc_key_client_server(),
             session.iv_client_server(),
+            session
+                .algorithms()
+                .as_ref()
+                .unwrap()
+                .encryption_algorithms_client_to_server
+                .details
+                .cipher,
         )?
     } else {
         decode_packet_unencrypted(stream)?
@@ -131,12 +138,17 @@ pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPac
     );
     Ok(decoded_packet)
 }
-fn decoded_packet_encrypted(stream: &TcpStream, key: &[u8], iv: &[u8]) -> Result<DecodedPacket> {
+fn decoded_packet_encrypted(
+    stream: &TcpStream,
+    key: &[u8],
+    iv: &[u8],
+    cipher: Cipher,
+) -> Result<DecodedPacket> {
     let mut reader = BufReader::new(stream);
     let mut first_block = vec![0u8; 16];
     reader.read_exact(&mut first_block)?;
 
-    let mut decrypter = Crypter::new(Cipher::aes_128_ctr(), Mode::Decrypt, key, Some(iv))?;
+    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))?;
     decrypter.pad(false);
 
     let mut first_block_dec = vec![0u8; 16];

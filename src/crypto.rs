@@ -102,14 +102,19 @@ impl Crypto {
     }
 
     // RFC 4253 § 6.4
-    pub fn compute_mac(&self, key: &[u8], sequence_num: u32, packet: &[u8]) -> Result<Vec<u8>> {
+    pub fn compute_mac(
+        &self,
+        key: &[u8],
+        sequence_num: u32,
+        packet_unencrypted: &[u8],
+    ) -> Result<Vec<u8>> {
         let pkey = PKey::hmac(key)?;
         let mut signer = Signer::new(
             self.algorithms.mac_algorithms_server_to_client.details.hash,
             &pkey,
         )?;
         signer.update(&encode_u32(sequence_num))?;
-        signer.update(packet)?;
+        signer.update(packet_unencrypted)?;
 
         let mac = signer.sign_to_vec()?;
         Ok(mac)
