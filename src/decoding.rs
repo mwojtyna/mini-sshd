@@ -6,10 +6,10 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
-use openssl::symm::{Cipher, Crypter, Mode};
+use openssl::symm::{Crypter, Mode};
 
 use crate::{
-    encoding::{PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
+    encoding::{encode_string, PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
     session::Session,
     types::MessageType,
 };
@@ -57,7 +57,7 @@ impl PayloadReader {
         trace!("length = {}", length);
 
         let string = iter.take(length as usize).collect();
-        trace!("string = {:?}", string);
+        trace!("string = {:02x?}", string);
 
         trace!("-- END STRING DECODING --");
         Ok(string)
@@ -101,7 +101,7 @@ impl DecodedPacket {
 }
 
 // RFC 4253 § 6
-pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPacket> {
+pub fn decode_packet(session: &Session) -> Result<DecodedPacket> {
     trace!(
         "-- BEGIN PACKET DECODING{} --",
         if session.kex().finished {
@@ -112,20 +112,9 @@ pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPac
     );
 
     let decoded_packet = if session.kex().finished {
-        decoded_packet_encrypted(
-            stream,
-            session.enc_key_client_server(),
-            session.iv_client_server(),
-            session
-                .algorithms()
-                .as_ref()
-                .unwrap()
-                .encryption_algorithms_client_to_server
-                .details
-                .cipher,
-        )?
+        decode_packet_encrypted(session)?
     } else {
-        decode_packet_unencrypted(stream)?
+        decode_packet_unencrypted(session.stream())?
     };
 
     trace!(
@@ -138,35 +127,78 @@ pub fn decode_packet(stream: &TcpStream, session: &Session) -> Result<DecodedPac
     );
     Ok(decoded_packet)
 }
-fn decoded_packet_encrypted(
-    stream: &TcpStream,
-    key: &[u8],
-    iv: &[u8],
-    cipher: Cipher,
-) -> Result<DecodedPacket> {
-    let mut reader = BufReader::new(stream);
-    let mut first_block = vec![0u8; 16];
-    reader.read_exact(&mut first_block)?;
+fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
+    let block_size = session
+        .algorithms()
+        .as_ref()
+        .unwrap()
+        .encryption_algorithms_client_to_server
+        .details
+        .block_size;
 
-    let mut decrypter = Crypter::new(cipher, Mode::Decrypt, key, Some(iv))?;
+    let cipher = session
+        .algorithms()
+        .as_ref()
+        .unwrap()
+        .encryption_algorithms_client_to_server
+        .details
+        .cipher;
+    let mut decrypter = Crypter::new(
+        cipher,
+        Mode::Decrypt,
+        session.enc_key_client_server(),
+        Some(session.iv_client_server()),
+    )?;
     decrypter.pad(false);
 
-    let mut first_block_dec = vec![0u8; 16];
+    // Read first block
+    let mut reader = BufReader::new(session.stream());
+    let mut first_block = vec![0u8; block_size];
+    reader.read_exact(&mut first_block)?;
+
+    // Decrypt first block to get packet length
+    let mut first_block_dec = vec![0u8; block_size];
     decrypter.update(&first_block, &mut first_block_dec)?;
 
     let packet_length_bytes = &first_block_dec[0..PACKET_LENGTH_SIZE];
     let packet_length = u8_array_to_u32(packet_length_bytes)?;
-    trace!("packet_length = {:?}", packet_length);
+    trace!("packet_length = {}", packet_length);
 
-    let mut packet_enc = vec![0u8; packet_length as usize];
-    reader.read_exact(&mut packet_enc)?;
+    // Read rest of encrypted packet
+    let mut rest_enc = vec![0u8; packet_length as usize - (block_size - PACKET_LENGTH_SIZE)];
+    reader.read_exact(&mut rest_enc)?;
 
+    // Decrypt rest of encrypted packet
+    let mut rest_dec = vec![0u8; rest_enc.len()];
+    decrypter.update(&rest_enc, &mut rest_dec)?;
+
+    // Join first block and rest of decrypted packet
     let mut packet_dec = first_block_dec[PACKET_LENGTH_SIZE..].to_vec();
-    let mut rest = vec![0u8; packet_length as usize];
-    decrypter.update(&packet_enc, &mut rest)?;
-    packet_dec.extend(rest);
+    packet_dec.extend(rest_dec);
 
-    trace!("packet = {:?}", packet_dec);
+    let mac_len = session
+        .algorithms()
+        .as_ref()
+        .unwrap()
+        .mac_algorithms_client_to_server
+        .details
+        .hash
+        .size();
+    let mut mac = vec![0u8; mac_len];
+    reader.read_exact(&mut mac)?;
+
+    let valid = session.crypto().as_ref().unwrap().verify_mac(
+        session.sequence_number(),
+        session.integrity_key_client_server(),
+        // For some reason, this has to be encoded as string
+        &encode_string(&packet_dec),
+        &mac,
+    )?;
+    if !valid {
+        return Err(anyhow!("MAC verification failed"));
+    }
+
+    trace!("packet = {:02x?}", packet_dec);
 
     let payload = get_payload(packet_dec, packet_length)?;
     Ok(DecodedPacket { payload })
@@ -189,6 +221,7 @@ fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
     let payload = get_payload(packet, packet_length)?;
     Ok(DecodedPacket { payload })
 }
+/// `packet` must not contain the packet_length field
 fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     let mut reader = packet.into_iter();
     let reader = reader.by_ref();
@@ -204,7 +237,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     }
 
     let random_padding = reader.take(padding_length as usize).collect::<Vec<u8>>();
-    trace!("random_padding = {:?}", random_padding);
+    trace!("random_padding = {:02x?}", random_padding);
 
     let bytes_left = packet_length - 1 - n1 - padding_length as u32;
     if bytes_left != 0 {

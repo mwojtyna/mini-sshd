@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use log::debug;
 use openssl::{
     bn::{BigNum, BigNumContext},
@@ -118,5 +118,19 @@ impl Crypto {
 
         let mac = signer.sign_to_vec()?;
         Ok(mac)
+    }
+
+    pub fn verify_mac(
+        &self,
+        sequence_num: u32,
+        key: &[u8],
+        packet_unencrypted: &[u8],
+        mac: &[u8],
+    ) -> Result<bool> {
+        let computed_mac = self.compute_mac(key, sequence_num, packet_unencrypted)?;
+        if mac.len() != computed_mac.len() {
+            return Err(anyhow!("MAC lengths do not match"));
+        }
+        Ok(openssl::memcmp::eq(&computed_mac, mac))
     }
 }

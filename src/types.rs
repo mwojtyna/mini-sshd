@@ -12,6 +12,7 @@ pub enum MessageType {
     SSH_MSG_DEBUG = 4,
     SSH_MSG_SERVICE_REQUEST = 5,
     SSH_MSG_SERVICE_ACCEPT = 6,
+    SSH_MSG_EXT_INFO = 7,
 
     // 20 to 29 - Algorithm negotiation
     SSH_MSG_KEXINIT = 20,
@@ -86,14 +87,28 @@ macro_rules! def_enum {
             $(
                 pub const $variant: $ty = $val;
             )+
+
+            #[allow(dead_code)]
+            pub const VARIANTS: &'static [$ty] = &[$(Self::$variant),+];
         }
     };
+}
+
+#[macro_export]
+macro_rules! hashmap {
+    ($( $key: expr => $val: expr ),*) => {{
+         let mut map = ::std::collections::HashMap::new();
+         $( map.insert($key, $val); )*
+         map
+    }}
 }
 
 def_enum!(pub KexAlgorithm => &'static str {
     ECDH_SHA2_NISTP256 => "ecdh-sha2-nistp256",
     ECDH_SHA2_NISTP384 => "ecdh-sha2-nistp384",
-    ECDH_SHA2_NISTP521 => "ecdh-sha2-nistp521"
+    ECDH_SHA2_NISTP521 => "ecdh-sha2-nistp521",
+    // RFC 8308 § 2.1
+    EXT_INFO_C => "ext-info-c",
 });
 #[derive(Clone)]
 pub struct KexAlgorithmDetails {
@@ -118,6 +133,7 @@ def_enum!(pub EncryptionAlgorithm => &'static str {
 #[derive(Clone)]
 pub struct EncryptionAlgorithmDetails {
     pub cipher: Cipher,
+    pub block_size: usize,
 }
 
 def_enum!(pub HmacAlgorithm => &'static str {
@@ -133,12 +149,3 @@ def_enum!(pub CompressionAlgorithm => &'static str {
 });
 #[derive(Clone)]
 pub struct CompressionAlgorithmDetails {}
-
-#[macro_export]
-macro_rules! hashmap {
-    ($( $key: expr => $val: expr ),*) => {{
-         let mut map = ::std::collections::HashMap::new();
-         $( map.insert($key, $val); )*
-         map
-    }}
-}

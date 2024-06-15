@@ -1,7 +1,7 @@
 use std::mem::size_of;
 
 use anyhow::Result;
-use log::{info, log_enabled, trace, Level};
+use log::{log_enabled, trace, Level};
 use openssl::{
     bn::BigNumRef,
     symm::{Crypter, Mode},
@@ -18,7 +18,6 @@ const MIN_PADDING: u8 = 4;
 pub struct PacketBuilder<'a> {
     payload: Vec<u8>,
     session: &'a Session<'a>,
-    encrypt: bool,
 }
 
 #[allow(dead_code)]
@@ -27,7 +26,6 @@ impl<'a> PacketBuilder<'a> {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,
-            encrypt: session.kex().finished,
         }
     }
 
@@ -35,10 +33,24 @@ impl<'a> PacketBuilder<'a> {
     pub fn build(self) -> Result<Vec<u8>> {
         trace!(
             "-- BEGIN PACKET ENCODING{} --",
-            if self.encrypt { " (ENCRYPTED)" } else { "" }
+            if self.session.kex().finished {
+                " (ENCRYPTED)"
+            } else {
+                ""
+            }
         );
 
-        let block_size = if self.encrypt { 16 } else { 8 };
+        let block_size = if self.session.kex().finished {
+            self.session
+                .algorithms()
+                .as_ref()
+                .unwrap()
+                .encryption_algorithms_server_to_client
+                .details
+                .block_size
+        } else {
+            8
+        };
 
         let p = PACKET_LENGTH_SIZE + PADDING_LENGTH_SIZE + self.payload.len();
         let mut padding_length = (block_size - (p % block_size)) as u8;
@@ -55,7 +67,7 @@ impl<'a> PacketBuilder<'a> {
         if log_enabled!(Level::Trace) {
             trace!("payload = {:?}", String::from_utf8_lossy(&self.payload));
         }
-        trace!("random_padding = {:?}", random_padding);
+        trace!("random_padding = {:02x?}", random_padding);
 
         let mut packet = Vec::<u8>::with_capacity(
             PACKET_LENGTH_SIZE + PADDING_LENGTH_SIZE + self.payload.len() + padding_length as usize,
@@ -65,7 +77,7 @@ impl<'a> PacketBuilder<'a> {
         packet.extend_from_slice(&self.payload);
         packet.extend(random_padding);
 
-        if self.encrypt {
+        if self.session.kex().finished {
             let crypto = self.session.crypto().as_ref().unwrap();
             // Compute mac for unencrypted packet
             let mac = crypto.compute_mac(
@@ -73,7 +85,7 @@ impl<'a> PacketBuilder<'a> {
                 self.session.sequence_number(),
                 &packet,
             )?;
-            trace!("mac = {:?}", mac);
+            trace!("mac = {:02x?}", mac);
 
             let algorithms = self.session.algorithms().as_ref().unwrap();
             let cipher = algorithms
@@ -108,7 +120,11 @@ impl<'a> PacketBuilder<'a> {
 
         trace!(
             "-- END PACKET ENCODING{} --",
-            if self.encrypt { " (ENCRYPTED)" } else { "" }
+            if self.session.kex().finished {
+                " (ENCRYPTED)"
+            } else {
+                ""
+            }
         );
         Ok(packet)
     }
@@ -182,7 +198,7 @@ pub fn encode_name_list(names: &[&str]) -> Vec<u8> {
     let mut name_list = Vec::<u8>::new();
     name_list.extend_from_slice(&encode_u32(payload.len() as u32));
     name_list.extend_from_slice(payload);
-    trace!("name_list = {:?}", name_list);
+    trace!("name_list = {:02x?}", name_list);
 
     trace!("-- END NAME-LIST ENCODING --");
     name_list
@@ -191,7 +207,7 @@ pub fn encode_name_list(names: &[&str]) -> Vec<u8> {
 pub fn encode_string(data: &[u8]) -> Vec<u8> {
     trace!("-- BEGIN STRING ENCODING --");
     trace!("length = {}", data.len());
-    trace!("data = {:?}", data);
+    trace!("data = {:02x?}", data);
 
     let mut string = Vec::with_capacity(STRING_LENGTH_SIZE + data.len());
     let length_bytes = encode_u32(data.len() as u32);
@@ -211,7 +227,7 @@ pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
     trace!("-- BEGIN MPINT ENCODING --");
 
     let mut bin = data.to_vec();
-    trace!("data = {:?}, length = {}", bin, bin.len());
+    trace!("data = {:02x?}, length = {}", bin, bin.len());
 
     if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
         trace!("Adding a zero byte to the beginning of mpint");

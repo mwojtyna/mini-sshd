@@ -69,11 +69,13 @@ fn main() -> Result<()> {
         encryption_algorithms_server_to_client: indexmap! {
             EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
                 cipher: Cipher::aes_128_ctr(),
+                block_size: 16,
             },
         },
         encryption_algorithms_client_to_server: indexmap! {
             EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
                 cipher: Cipher::aes_128_ctr(),
+                block_size: 16,
             },
         },
 
@@ -129,6 +131,7 @@ fn connect() -> Result<()> {
             Ok(())
         });
 
+        // TODO: Join on seperate thread
         match handle.join() {
             Ok(val) => match val {
                 Ok(()) => debug!("Session for address {} finished successfully", client_addr),

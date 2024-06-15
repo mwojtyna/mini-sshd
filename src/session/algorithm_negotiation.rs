@@ -11,7 +11,7 @@ use crate::{
     session::Session,
     types::{
         CompressionAlgorithmDetails, EncryptionAlgorithmDetails, HmacAlgorithmDetails,
-        HostKeyAlgorithmDetails, KexAlgorithmDetails, MessageType,
+        HostKeyAlgorithmDetails, KexAlgorithm, KexAlgorithmDetails, MessageType,
     },
 };
 
@@ -80,7 +80,7 @@ impl<D> Algorithm<D> {
 
 impl<D> Debug for Algorithm<D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.name)
+        f.write_fmt(format_args!("\"{}\"", &self.name))
     }
 }
 
@@ -114,7 +114,7 @@ impl Session<'_> {
         debug!("Decoding client algorithms...");
 
         let cookie = reader.next_n_bytes(16);
-        trace!("cookie = {:?}", cookie);
+        trace!("cookie = {:02x?}", cookie);
 
         let client_algorithms =
             Self::decode_client_algorithms(reader).context("Failed reading client algorithms")?;
@@ -130,7 +130,7 @@ impl Session<'_> {
             .context("Failed writing server algorithms packet")?;
 
         let negotiated =
-            Self::negotiate_algorithms(&client_algorithms, &self.server_config.algorithms)?;
+            self.negotiate_algorithms(&client_algorithms, &self.server_config.algorithms)?;
         debug!("negotiated_algorithms = {:#?}", negotiated);
 
         debug!("--- END ALGORITHM NEGOTIATION ---");
@@ -220,83 +220,114 @@ impl Session<'_> {
     }
 
     fn negotiate_algorithms(
+        &mut self,
         client_algorithms: &ClientAlgorithms,
         server_algorithms: &ServerAlgorithms,
     ) -> Result<Algorithms> {
-        let kex_algorithm_name = Self::negotiate_algorithm(
-            &client_algorithms.kex_algorithms,
-            &server_algorithms.kex_algorithms,
-        )?
-        .clone();
+        if client_algorithms
+            .kex_algorithms
+            .contains(&KexAlgorithm::EXT_INFO_C.to_owned())
+        {
+            self.kex.ext_info_c = true;
+        }
+
+        let kex_algorithm_name = self
+            .negotiate_algorithm(
+                &client_algorithms.kex_algorithms,
+                &server_algorithms.kex_algorithms,
+            )?
+            .clone();
         let kex_algorithm = server_algorithms
             .kex_algorithms
             .get(&kex_algorithm_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find kex_algorithm"))?
+            .ok_or(anyhow!("Could not find kex_algorithm"))?
             .clone();
 
-        let server_host_key_algorithm_name = Self::negotiate_algorithm(
-            &client_algorithms.server_host_key_algorithms,
-            &server_algorithms.server_host_key_algorithms,
-        )?
-        .clone();
+        let server_host_key_algorithm_name = self
+            .negotiate_algorithm(
+                &client_algorithms.server_host_key_algorithms,
+                &server_algorithms.server_host_key_algorithms,
+            )?
+            .clone();
         let server_host_key_algorithm = server_algorithms
             .server_host_key_algorithms
             .get(&server_host_key_algorithm_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find server_host_key_algorithm"))?
+            .ok_or(anyhow!("Could not find server_host_key_algorithm"))?
             .clone();
 
-        let encryption_algorithms_client_to_server_name = Self::negotiate_algorithm(
-            &client_algorithms.encryption_algorithms_client_to_server,
-            &server_algorithms.encryption_algorithms_client_to_server,
-        )?
-        .clone();
+        let encryption_algorithms_client_to_server_name = self
+            .negotiate_algorithm(
+                &client_algorithms.encryption_algorithms_client_to_server,
+                &server_algorithms.encryption_algorithms_client_to_server,
+            )?
+            .clone();
         let encryption_algorithms_client_to_server = server_algorithms
             .encryption_algorithms_client_to_server
             .get(&encryption_algorithms_client_to_server_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find encryption_algorithms_client_to_server"))?
+            .ok_or(anyhow!(
+                "Could not find encryption_algorithms_client_to_server"
+            ))?
             .clone();
 
-        let encryption_algorithms_server_to_client_name = Self::negotiate_algorithm(
-            &client_algorithms.encryption_algorithms_server_to_client,
-            &server_algorithms.encryption_algorithms_server_to_client,
-        )?
-        .clone();
+        let encryption_algorithms_server_to_client_name = self
+            .negotiate_algorithm(
+                &client_algorithms.encryption_algorithms_server_to_client,
+                &server_algorithms.encryption_algorithms_server_to_client,
+            )?
+            .clone();
         let encryption_algorithms_server_to_client = server_algorithms
             .encryption_algorithms_server_to_client
             .get(&encryption_algorithms_server_to_client_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find encryption_algorithms_server_to_client"))?
+            .ok_or(anyhow!(
+                "Could not find encryption_algorithms_server_to_client"
+            ))?
             .clone();
 
-        let mac_algorithms_client_to_server_name = Self::negotiate_algorithm(
-            &client_algorithms.mac_algorithms_client_to_server,
-            &server_algorithms.mac_algorithms_client_to_server,
-        )?
-        .clone();
+        let mac_algorithms_client_to_server_name = self
+            .negotiate_algorithm(
+                &client_algorithms.mac_algorithms_client_to_server,
+                &server_algorithms.mac_algorithms_client_to_server,
+            )?
+            .clone();
         let mac_algorithms_client_to_server = server_algorithms
             .mac_algorithms_client_to_server
             .get(&mac_algorithms_client_to_server_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find mac_algorithms_client_to_server"))?
+            .ok_or(anyhow!("Could not find mac_algorithms_client_to_server"))?
             .clone();
 
-        let mac_algorithms_server_to_client_name = Self::negotiate_algorithm(
-            &client_algorithms.mac_algorithms_server_to_client,
-            &server_algorithms.mac_algorithms_server_to_client,
-        )?
-        .clone();
+        let mac_algorithms_server_to_client_name = self
+            .negotiate_algorithm(
+                &client_algorithms.mac_algorithms_server_to_client,
+                &server_algorithms.mac_algorithms_server_to_client,
+            )?
+            .clone();
         let mac_algorithms_server_to_client = server_algorithms
             .mac_algorithms_server_to_client
             .get(&mac_algorithms_server_to_client_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find mac_algorithms_server_to_client"))?
+            .ok_or(anyhow!("Could not find mac_algorithms_server_to_client"))?
             .clone();
 
-        let compression_algorithms_server_to_client_name = Self::negotiate_algorithm(
+        let compression_algorithms_client_to_server_name = self.negotiate_algorithm(
+            &client_algorithms.compression_algorithms_client_to_server,
+            &server_algorithms.compression_algorithms_client_to_server,
+        )?;
+        let compression_algorithms_client_to_server = server_algorithms
+            .compression_algorithms_client_to_server
+            .get(&compression_algorithms_client_to_server_name.as_str())
+            .ok_or(anyhow!(
+                "Could not find compression_algorithms_server_to_client"
+            ))?;
+
+        let compression_algorithms_server_to_client_name = self.negotiate_algorithm(
             &client_algorithms.compression_algorithms_server_to_client,
             &server_algorithms.compression_algorithms_server_to_client,
         )?;
         let compression_algorithms_server_to_client = server_algorithms
             .compression_algorithms_server_to_client
             .get(&compression_algorithms_server_to_client_name.as_str())
-            .ok_or_else(|| anyhow!("Could not find compression_algorithms_server_to_client"))?;
+            .ok_or(anyhow!(
+                "Could not find compression_algorithms_server_to_client"
+            ))?;
 
         // let languages_client_to_server = Self::negotiate_algorithm(
         //     &client_algorithms.languages_client_to_server,
@@ -330,8 +361,8 @@ impl Session<'_> {
                 mac_algorithms_server_to_client,
             ),
             compression_algorithms_client_to_server: Algorithm::new(
-                compression_algorithms_server_to_client_name.clone(),
-                compression_algorithms_server_to_client.clone(),
+                compression_algorithms_client_to_server_name.clone(),
+                compression_algorithms_client_to_server.clone(),
             ),
             compression_algorithms_server_to_client: Algorithm::new(
                 compression_algorithms_server_to_client_name.clone(),
@@ -344,6 +375,7 @@ impl Session<'_> {
 
     // RFC 4253 § 7.1
     fn negotiate_algorithm<V>(
+        &mut self,
         client_algorithms: &[String],
         server_algorithms: &AlgorithmsCollection<V>,
     ) -> Result<String> {

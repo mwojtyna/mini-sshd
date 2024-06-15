@@ -11,7 +11,7 @@ use crate::{
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::{encode_mpint, PacketBuilder},
-    types::{DisconnectReason, MessageType},
+    types::{DisconnectReason, HostKeyAlgorithm, MessageType},
     ServerConfig,
 };
 
@@ -44,6 +44,7 @@ pub struct KeyExchange {
     pub client_kexinit_payload: Vec<u8>,
     pub server_kexinit_payload: Vec<u8>,
     pub finished: bool,
+    pub ext_info_c: bool,
 }
 
 impl<'a> Session<'a> {
@@ -89,6 +90,10 @@ impl<'a> Session<'a> {
         }
 
         Ok(())
+    }
+
+    pub fn stream(&self) -> &TcpStream {
+        &self.stream
     }
 
     pub fn sequence_number(&self) -> u32 {
@@ -178,7 +183,7 @@ impl<'a> Session<'a> {
 
     // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
-        let packet = decode_packet(&self.stream, self)?;
+        let packet = decode_packet(self)?;
         let msg_type = packet.message_type()?;
         trace!(
             "Received message of type = {:?}, sequence_number = {}",
@@ -195,6 +200,26 @@ impl<'a> Session<'a> {
             MessageType::SSH_MSG_IGNORE => { /* RFC 4253 § 11.2 - Must be ignored */ }
             MessageType::SSH_MSG_UNIMPLEMENTED => { /* RFC 4253 § 11.4 - Must be ignored */ }
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
+            MessageType::SSH_MSG_SERVICE_REQUEST => {
+                // Advertise extensions
+                // RFC 8308 § 2.3, 2.4
+                if self.kex().ext_info_c {
+                    let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
+                        .write_u32(1)
+                        .write_string(b"server-sig-algs")
+                        .write_name_list(HostKeyAlgorithm::VARIANTS)
+                        .build()?;
+                    self.send_packet(&packet)?;
+                }
+
+                let service_name = String::from_utf8(reader.next_string()?)?;
+                trace!("service_name = {}", service_name);
+                //
+                // let packet = PacketBuilder::new(MessageType::SSH_MSG_SERVICE_ACCEPT, self)
+                //     .write_string(service_name.as_bytes())
+                //     .build()?;
+                // self.send_packet(&packet)?;
+            }
 
             MessageType::SSH_MSG_KEXINIT => {
                 let algorithms = self
@@ -233,9 +258,9 @@ impl<'a> Session<'a> {
                 self.iv_client_server = Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?;
                 self.iv_server_client = Crypto::hash(&[k, h, b"B", h].concat(), hash_algo)?;
                 self.enc_key_client_server =
-                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[0..(128 / 8)].to_vec();
+                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[0..16].to_vec();
                 self.enc_key_server_client =
-                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[0..(128 / 8)].to_vec();
+                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[0..16].to_vec();
                 self.integrity_key_client_server =
                     Crypto::hash(&[k, h, b"E", h].concat(), hash_algo)?;
                 self.integrity_key_server_client =
@@ -264,6 +289,7 @@ impl<'a> Session<'a> {
         self.stream
             .write_all(packet)
             .context("Failed sending packet")?;
+        trace!("Packet sent");
 
         Ok(())
     }
