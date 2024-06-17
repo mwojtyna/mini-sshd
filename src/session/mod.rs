@@ -1,4 +1,5 @@
 use std::{
+    cell::RefCell,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
 };
@@ -6,12 +7,13 @@ use std::{
 use algorithm_negotiation::Algorithms;
 use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
+use openssl::symm::{Crypter, Mode};
 
 use crate::{
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::{encode_mpint, PacketBuilder},
-    types::{DisconnectReason, HostKeyAlgorithm, MessageType},
+    types::{DisconnectReason, MessageType, ServiceName},
     ServerConfig,
 };
 
@@ -36,6 +38,8 @@ pub struct Session<'a> {
     enc_key_server_client: Vec<u8>,
     integrity_key_client_server: Vec<u8>,
     integrity_key_server_client: Vec<u8>,
+    encrypter: Option<RefCell<Crypter>>,
+    decrypter: Option<RefCell<Crypter>>,
 }
 
 #[derive(Default)]
@@ -66,6 +70,8 @@ impl<'a> Session<'a> {
             enc_key_server_client: Vec::new(),
             integrity_key_client_server: Vec::new(),
             integrity_key_server_client: Vec::new(),
+            encrypter: None,
+            decrypter: None,
         }
     }
 
@@ -83,7 +89,6 @@ impl<'a> Session<'a> {
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
             if let Some(reason) = disconnect {
-                debug!("Sending disconnect packet, reason = {:?}", reason);
                 self.disconnect(reason)?;
                 break;
             }
@@ -100,12 +105,12 @@ impl<'a> Session<'a> {
         self.sequence_number
     }
 
-    pub fn algorithms(&self) -> &Option<Algorithms> {
-        &self.algorithms
+    pub fn algorithms(&self) -> Option<&Algorithms> {
+        self.algorithms.as_ref()
     }
 
-    pub fn crypto(&self) -> &Option<Crypto> {
-        &self.crypto
+    pub fn crypto(&self) -> Option<&Crypto> {
+        self.crypto.as_ref()
     }
 
     pub fn kex(&self) -> &KeyExchange {
@@ -134,6 +139,14 @@ impl<'a> Session<'a> {
 
     pub fn integrity_key_client_server(&self) -> &Vec<u8> {
         &self.integrity_key_client_server
+    }
+
+    pub fn decrypter(&self) -> Option<&RefCell<Crypter>> {
+        self.decrypter.as_ref()
+    }
+
+    pub fn encrypter(&self) -> Option<&RefCell<Crypter>> {
+        self.encrypter.as_ref()
     }
 
     // RFC 4253 § 4.2
@@ -185,10 +198,9 @@ impl<'a> Session<'a> {
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
         let packet = decode_packet(self)?;
         let msg_type = packet.message_type()?;
-        trace!(
+        debug!(
             "Received message of type = {:?}, sequence_number = {}",
-            msg_type,
-            self.sequence_number
+            msg_type, self.sequence_number
         );
 
         let mut reader = PayloadReader::new(packet.payload());
@@ -201,26 +213,22 @@ impl<'a> Session<'a> {
             MessageType::SSH_MSG_UNIMPLEMENTED => { /* RFC 4253 § 11.4 - Must be ignored */ }
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
             MessageType::SSH_MSG_SERVICE_REQUEST => {
-                // Advertise extensions
-                // RFC 8308 § 2.3, 2.4
-                if self.kex().ext_info_c {
-                    let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
-                        .write_u32(1)
-                        .write_string(b"server-sig-algs")
-                        .write_name_list(HostKeyAlgorithm::VARIANTS)
-                        .build()?;
-                    self.send_packet(&packet)?;
-                }
+                debug!("--- BEGIN SERVICE REQUEST ---");
 
                 let service_name = String::from_utf8(reader.next_string()?)?;
-                trace!("service_name = {}", service_name);
-                //
-                // let packet = PacketBuilder::new(MessageType::SSH_MSG_SERVICE_ACCEPT, self)
-                //     .write_string(service_name.as_bytes())
-                //     .build()?;
-                // self.send_packet(&packet)?;
-            }
+                debug!("service_name = {}", service_name);
 
+                if service_name == ServiceName::SSH_USERAUTH {
+                    let packet = PacketBuilder::new(MessageType::SSH_MSG_SERVICE_ACCEPT, self)
+                        .write_string(service_name.as_bytes())
+                        .build()?;
+                    self.send_packet(&packet)?;
+                } else {
+                    return Ok(Some(DisconnectReason::SSH_DISCONNECT_SERVICE_NOT_AVAILABLE));
+                }
+
+                debug!("--- END SERVICE REQUEST ---");
+            }
             MessageType::SSH_MSG_KEXINIT => {
                 let algorithms = self
                     .algorithm_negotiation(&packet, &mut reader)
@@ -233,38 +241,93 @@ impl<'a> Session<'a> {
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, self).build()?;
                 self.send_packet(&packet)?;
                 self.kex.finished = true;
+
+                // RFC 8308 § 2.3, 2.4
+                // Advertise extensions
+                // if self.kex().ext_info_c {
+                //     let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
+                //         .write_u32(1)
+                //         .write_string(b"server-sig-algs")
+                //         .write_name_list(HostKeyAlgorithm::VARIANTS)
+                //         .build()?;
+                //     self.send_packet(&packet)?;
+                // }
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                let (k, h) = self.key_exchange(&mut reader)?;
-                let hash_algo = self
-                    .algorithms()
-                    .as_ref()
-                    .unwrap()
-                    .kex_algorithm
+                let algos = self.algorithms().unwrap().clone();
+                let hash_algo = algos.kex_algorithm.details.hash;
+                let iv_len = algos
+                    .encryption_algorithms_client_to_server
                     .details
-                    .hash;
+                    .cipher
+                    .iv_len()
+                    .unwrap();
+                let block_size = algos
+                    .encryption_algorithms_client_to_server
+                    .details
+                    .block_size;
 
+                let (k, h) = self.key_exchange(&mut reader)?;
                 let k = encode_mpint(&k);
                 let k = k.as_slice();
                 let h = h.as_slice();
 
-                if cfg!(debug_assertions) {
-                    debug!("k = {:02x?}", k);
-                    debug!("h = {:02x?}", h);
-                }
-
                 self.session_id = h.to_vec();
-                self.iv_client_server = Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?;
-                self.iv_server_client = Crypto::hash(&[k, h, b"B", h].concat(), hash_algo)?;
+                self.iv_client_server =
+                    Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?[..iv_len].to_vec();
+                self.iv_server_client =
+                    Crypto::hash(&[k, h, b"B", h].concat(), hash_algo)?[..iv_len].to_vec();
                 self.enc_key_client_server =
-                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[0..16].to_vec();
+                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[..block_size].to_vec();
                 self.enc_key_server_client =
-                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[0..16].to_vec();
+                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[..block_size].to_vec();
                 self.integrity_key_client_server =
                     Crypto::hash(&[k, h, b"E", h].concat(), hash_algo)?;
                 self.integrity_key_server_client =
                     Crypto::hash(&[k, h, b"F", h].concat(), hash_algo)?;
+
+                let mut encrypter = Crypter::new(
+                    algos.encryption_algorithms_server_to_client.details.cipher,
+                    Mode::Encrypt,
+                    self.enc_key_server_client(),
+                    Some(self.iv_server_client()),
+                )?;
+                encrypter.pad(false);
+                self.encrypter = Some(RefCell::new(encrypter));
+
+                let mut decrypter = Crypter::new(
+                    algos.encryption_algorithms_client_to_server.details.cipher,
+                    Mode::Decrypt,
+                    self.enc_key_client_server(),
+                    Some(self.iv_client_server()),
+                )?;
+                decrypter.pad(false);
+                self.decrypter = Some(RefCell::new(decrypter));
+
+                if cfg!(debug_assertions) {
+                    trace!("session_id = {:02x?}", self.session_id);
+                    trace!("iv_len = {}", iv_len);
+                    trace!("iv_client_server = {:02x?}", self.iv_client_server);
+                    trace!("iv_server_client = {:02x?}", self.iv_server_client);
+                    trace!("block_size = {}", block_size);
+                    trace!(
+                        "enc_key_client_server = {:02x?}",
+                        self.enc_key_client_server
+                    );
+                    trace!(
+                        "enc_key_server_client = {:02x?}",
+                        self.enc_key_server_client
+                    );
+                    trace!(
+                        "integrity_key_client_server = {:02x?}",
+                        self.integrity_key_client_server
+                    );
+                    trace!(
+                        "integrity_key_server_client = {:02x?}",
+                        self.integrity_key_server_client
+                    );
+                }
             }
 
             _ => {
@@ -297,7 +360,7 @@ impl<'a> Session<'a> {
     // RFC 4253 § 11.1
     fn disconnect(&mut self, reason: DisconnectReason) -> Result<()> {
         let packet = PacketBuilder::new(MessageType::SSH_MSG_DISCONNECT, self)
-            .write_byte(reason.clone() as u8)
+            .write_byte(reason as u8)
             .write_bytes(b"")
             .write_bytes(b"en")
             .build()?;

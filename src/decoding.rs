@@ -6,7 +6,6 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
-use openssl::symm::{Crypter, Mode};
 
 use crate::{
     encoding::{encode_string, PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
@@ -101,7 +100,7 @@ impl DecodedPacket {
 }
 
 // RFC 4253 § 6
-pub fn decode_packet(session: &Session) -> Result<DecodedPacket> {
+pub fn decode_packet(session: &mut Session) -> Result<DecodedPacket> {
     trace!(
         "-- BEGIN PACKET DECODING{} --",
         if session.kex().finished {
@@ -130,26 +129,12 @@ pub fn decode_packet(session: &Session) -> Result<DecodedPacket> {
 fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let block_size = session
         .algorithms()
-        .as_ref()
         .unwrap()
         .encryption_algorithms_client_to_server
         .details
         .block_size;
 
-    let cipher = session
-        .algorithms()
-        .as_ref()
-        .unwrap()
-        .encryption_algorithms_client_to_server
-        .details
-        .cipher;
-    let mut decrypter = Crypter::new(
-        cipher,
-        Mode::Decrypt,
-        session.enc_key_client_server(),
-        Some(session.iv_client_server()),
-    )?;
-    decrypter.pad(false);
+    let mut decrypter = session.decrypter().unwrap().borrow_mut();
 
     // Read first block
     let mut reader = BufReader::new(session.stream());
@@ -178,7 +163,6 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
 
     let mac_len = session
         .algorithms()
-        .as_ref()
         .unwrap()
         .mac_algorithms_client_to_server
         .details
@@ -187,7 +171,7 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let mut mac = vec![0u8; mac_len];
     reader.read_exact(&mut mac)?;
 
-    let valid = session.crypto().as_ref().unwrap().verify_mac(
+    let valid = session.crypto().unwrap().verify_mac(
         session.sequence_number(),
         session.integrity_key_client_server(),
         // For some reason, this has to be encoded as string

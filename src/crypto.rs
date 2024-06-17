@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Context, Result};
-use log::debug;
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
@@ -91,12 +90,8 @@ impl Crypto {
         data: &[u8],
     ) -> Result<(Vec<u8>, EcdsaSig)> {
         let hashed_data = Self::hash(data, self.algorithms.server_host_key_algorithm.details.hash)?;
-        if cfg!(debug_assertions) {
-            debug!("hash = {:02x?}", hashed_data);
-        }
-
         let ecdsa_hash = Self::hash(&hashed_data, self.algorithms.kex_algorithm.details.hash)?;
-        let signed = EcdsaSig::sign(&ecdsa_hash, private_key.as_ref())?;
+        let signed = EcdsaSig::sign(&ecdsa_hash, private_key)?;
 
         Ok((hashed_data, signed))
     }

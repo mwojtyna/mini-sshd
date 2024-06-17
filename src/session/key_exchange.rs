@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, trace};
+use log::debug;
 use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
 
 use crate::{
@@ -18,13 +18,12 @@ impl Session<'_> {
     pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
-        let crypto = self.crypto.as_ref().unwrap();
+        let crypto = self.crypto().unwrap();
 
         // Client's public key
         let q_c = reader.next_string()?;
 
-        let server_host_key_algorithm =
-            &self.algorithms.as_ref().unwrap().server_host_key_algorithm;
+        let server_host_key_algorithm = &self.algorithms().unwrap().server_host_key_algorithm;
 
         let host_key = &self
             .server_config
@@ -34,11 +33,7 @@ impl Session<'_> {
 
         // Server's public host key
         let k_s = encode_ec_public_key(
-            &self
-                .algorithms()
-                .as_ref()
-                .unwrap()
-                .server_host_key_algorithm,
+            &self.algorithms().unwrap().server_host_key_algorithm,
             &host_key.public_key,
         )?;
 
@@ -56,13 +51,6 @@ impl Session<'_> {
             &q_s,
             &k,
         )?;
-        if cfg!(debug_assertions) {
-            trace!(
-                "concatenated = {:02x?}, length = {}",
-                &hash_data,
-                hash_data.len()
-            );
-        }
 
         let (hash, signed_exchange_hash) = crypto
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)

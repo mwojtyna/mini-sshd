@@ -1,11 +1,9 @@
 use std::mem::size_of;
 
 use anyhow::Result;
-use log::{log_enabled, trace, Level};
-use openssl::{
-    bn::BigNumRef,
-    symm::{Crypter, Mode},
-};
+use log::{debug, log_enabled, trace, Level};
+use num_traits::FromPrimitive;
+use openssl::bn::BigNumRef;
 
 use crate::{crypto::Crypto, session::Session, types::MessageType};
 
@@ -22,7 +20,7 @@ pub struct PacketBuilder<'a> {
 
 #[allow(dead_code)]
 impl<'a> PacketBuilder<'a> {
-    pub fn new(message_type: MessageType, session: &'a Session) -> Self {
+    pub fn new(message_type: MessageType, session: &'a Session<'a>) -> Self {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,
@@ -43,7 +41,6 @@ impl<'a> PacketBuilder<'a> {
         let block_size = if self.session.kex().finished {
             self.session
                 .algorithms()
-                .as_ref()
                 .unwrap()
                 .encryption_algorithms_server_to_client
                 .details
@@ -78,7 +75,10 @@ impl<'a> PacketBuilder<'a> {
         packet.extend(random_padding);
 
         if self.session.kex().finished {
-            let crypto = self.session.crypto().as_ref().unwrap();
+            let mut encrypter = self.session.encrypter().unwrap().borrow_mut();
+            let crypto = self.session.crypto().unwrap();
+            let algos = self.session.algorithms().unwrap();
+
             // Compute mac for unencrypted packet
             let mac = crypto.compute_mac(
                 self.session.integrity_key_server_client(),
@@ -87,29 +87,12 @@ impl<'a> PacketBuilder<'a> {
             )?;
             trace!("mac = {:02x?}", mac);
 
-            let algorithms = self.session.algorithms().as_ref().unwrap();
-            let cipher = algorithms
-                .encryption_algorithms_server_to_client
-                .details
-                .cipher;
-            let mut encrypter = Crypter::new(
-                cipher,
-                Mode::Encrypt,
-                self.session.enc_key_server_client(),
-                Some(self.session.iv_server_client()),
-            )?;
-
-            let mac_length = algorithms
-                .mac_algorithms_server_to_client
-                .details
-                .hash
-                .size();
+            let mac_length = algos.mac_algorithms_server_to_client.details.hash.size();
             // Allocate vector for encrypted packet with extra space for mac
             let mut packet_enc =
                 vec![0u8; PACKET_LENGTH_SIZE + packet_length as usize + mac_length];
 
             // Encrypt packet
-            encrypter.pad(false);
             encrypter.update(&packet, &mut packet_enc)?;
 
             // Overwrite empty space with mac
@@ -117,6 +100,11 @@ impl<'a> PacketBuilder<'a> {
 
             packet = packet_enc;
         }
+
+        debug!(
+            "Built packet of type = {:?}",
+            MessageType::from_u8(self.payload[0]).unwrap()
+        );
 
         trace!(
             "-- END PACKET ENCODING{} --",
@@ -214,7 +202,7 @@ pub fn encode_string(data: &[u8]) -> Vec<u8> {
     string.extend_from_slice(&length_bytes);
     string.extend_from_slice(data);
 
-    trace!("string = {:?}", string);
+    trace!("string = {:02x?}", string);
     if log_enabled!(Level::Trace) {
         trace!("string = {:?}", String::from_utf8_lossy(&string));
     }

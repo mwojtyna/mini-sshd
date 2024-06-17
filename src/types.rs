@@ -2,7 +2,7 @@ use num_derive::FromPrimitive;
 use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
 
 #[allow(non_camel_case_types)]
-#[derive(FromPrimitive, Debug, PartialEq)]
+#[derive(FromPrimitive, Debug, PartialEq, Clone, Copy)]
 pub enum MessageType {
     // Transport layer protocol:
     // 1 to 19 - Transport layer generic (e.g., disconnect, ignore, debug, etc.)
@@ -57,7 +57,7 @@ pub enum MessageType {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(FromPrimitive, Debug, PartialEq, Clone)]
+#[derive(FromPrimitive, Debug, PartialEq, Clone, Copy)]
 pub enum DisconnectReason {
     SSH_DISCONNECT_HOST_NOT_ALLOWED_TO_CONNECT = 1,
     SSH_DISCONNECT_PROTOCOL_ERROR = 2,
@@ -149,3 +149,8 @@ def_enum!(pub CompressionAlgorithm => &'static str {
 });
 #[derive(Clone)]
 pub struct CompressionAlgorithmDetails {}
+
+def_enum!(pub ServiceName => &'static str {
+    SSH_USERAUTH => "ssh-userauth",
+    // SSH_CONNECTION => "ssh-connection",
+});
