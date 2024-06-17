@@ -13,6 +13,8 @@ use crate::{
     types::MessageType,
 };
 
+const MAX_PACKET_LENGTH: u32 = 65535;
+
 pub struct PayloadReader {
     iter: std::vec::IntoIter<u8>,
 }
@@ -147,6 +149,13 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
 
     let packet_length_bytes = &first_block_dec[0..PACKET_LENGTH_SIZE];
     let packet_length = u8_array_to_u32(packet_length_bytes)?;
+    if packet_length > MAX_PACKET_LENGTH {
+        return Err(anyhow!(
+            "Packet length {} exceeds maximum length {}",
+            packet_length,
+            MAX_PACKET_LENGTH
+        ));
+    }
     trace!("packet_length = {}", packet_length);
 
     // Read rest of encrypted packet
@@ -195,6 +204,13 @@ fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
         .read_exact(&mut packet_length_bytes)
         .context("Failed reading packet_length")?;
     let packet_length = u8_array_to_u32(&packet_length_bytes)?;
+    if packet_length > MAX_PACKET_LENGTH {
+        return Err(anyhow!(
+            "Packet length {} exceeds maximum length {}",
+            packet_length,
+            MAX_PACKET_LENGTH
+        ));
+    }
     trace!("packet_length = {} bytes", packet_length);
 
     let mut packet = vec![0u8; packet_length as usize];
