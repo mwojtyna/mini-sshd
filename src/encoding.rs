@@ -41,7 +41,6 @@ impl<'a> PacketBuilder<'a> {
         let block_size = if self.session.kex().finished {
             self.session
                 .algorithms()
-                .unwrap()
                 .encryption_algorithms_server_to_client
                 .details
                 .block_size
@@ -75,12 +74,11 @@ impl<'a> PacketBuilder<'a> {
         packet.extend(random_padding);
 
         if self.session.kex().finished {
-            let mut encrypter = self.session.encrypter().unwrap().borrow_mut();
-            let crypto = self.session.crypto().unwrap();
-            let algos = self.session.algorithms().unwrap();
+            let mut encrypter = self.session.crypto().encrypter().borrow_mut();
+            let algos = self.session.algorithms();
 
             // Compute mac for unencrypted packet
-            let mac = crypto.compute_mac(
+            let mac = self.session.crypto().compute_mac(
                 self.session.integrity_key_server_client(),
                 self.session.sequence_number(),
                 &packet,

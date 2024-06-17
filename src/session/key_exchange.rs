@@ -18,12 +18,10 @@ impl Session<'_> {
     pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
-        let crypto = self.crypto().unwrap();
-
         // Client's public key
         let q_c = reader.next_string()?;
 
-        let server_host_key_algorithm = &self.algorithms().unwrap().server_host_key_algorithm;
+        let server_host_key_algorithm = &self.algorithms().server_host_key_algorithm;
 
         let host_key = &self
             .server_config
@@ -33,11 +31,12 @@ impl Session<'_> {
 
         // Server's public host key
         let k_s = encode_ec_public_key(
-            &self.algorithms().unwrap().server_host_key_algorithm,
+            &self.algorithms().server_host_key_algorithm,
             &host_key.public_key,
         )?;
 
-        let (k, q_s) = crypto
+        let (k, q_s) = self
+            .crypto()
             .compute_shared_secret(&q_c)
             .context("Failed computing shared secret")?;
 
@@ -52,7 +51,8 @@ impl Session<'_> {
             &k,
         )?;
 
-        let (hash, signed_exchange_hash) = crypto
+        let (hash, signed_exchange_hash) = self
+            .crypto()
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
             .context("Failed to hash and sign")?;
 

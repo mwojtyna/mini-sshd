@@ -140,12 +140,11 @@ pub fn decode_packet(session: &mut Session) -> Result<DecodedPacket> {
 fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let block_size = session
         .algorithms()
-        .unwrap()
         .encryption_algorithms_client_to_server
         .details
         .block_size;
 
-    let mut decrypter = session.decrypter().unwrap().borrow_mut();
+    let mut decrypter = session.crypto().decrypter().borrow_mut();
 
     // Read first block
     let mut reader = BufReader::new(session.stream());
@@ -181,7 +180,6 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
 
     let mac_len = session
         .algorithms()
-        .unwrap()
         .mac_algorithms_client_to_server
         .details
         .hash
@@ -189,7 +187,7 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let mut mac = vec![0u8; mac_len];
     reader.read_exact(&mut mac)?;
 
-    let valid = session.crypto().unwrap().verify_mac(
+    let valid = session.crypto().verify_mac(
         session.sequence_number(),
         session.integrity_key_client_server(),
         // For some reason, this has to be encoded as string

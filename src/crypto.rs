@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use anyhow::{anyhow, Context, Result};
 use openssl::{
     bn::{BigNum, BigNumContext},
@@ -9,6 +11,7 @@ use openssl::{
     pkey::{PKey, Private, Public},
     rand::rand_bytes,
     sign::Signer,
+    symm::Crypter,
 };
 
 use crate::{encoding::encode_u32, session::algorithm_negotiation::Algorithms};
@@ -20,12 +23,33 @@ pub struct EcHostKey {
 }
 
 pub struct Crypto {
+    encrypter: Option<RefCell<Crypter>>,
+    decrypter: Option<RefCell<Crypter>>,
     algorithms: Algorithms,
 }
 
 impl Crypto {
     pub fn new(algorithms: Algorithms) -> Self {
-        Crypto { algorithms }
+        Crypto {
+            encrypter: None,
+            decrypter: None,
+            algorithms,
+        }
+    }
+
+    pub fn init_crypters(&mut self, encrypter: Crypter, decrypter: Crypter) {
+        self.encrypter = Some(RefCell::new(encrypter));
+        self.decrypter = Some(RefCell::new(decrypter));
+    }
+
+    /// Panics if key exchange hasn't been done yet
+    pub fn encrypter(&self) -> &RefCell<Crypter> {
+        self.encrypter.as_ref().expect("Encrypter not initialized")
+    }
+
+    /// Panics if key exchange hasn't been done yet
+    pub fn decrypter(&self) -> &RefCell<Crypter> {
+        self.decrypter.as_ref().expect("Decrypter not initialized")
     }
 
     pub fn generate_random_array(len: usize) -> Result<Vec<u8>> {

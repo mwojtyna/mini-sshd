@@ -101,7 +101,7 @@ fn main() -> Result<()> {
         languages_client_to_server: vec![""],
         languages_server_to_client: vec![""],
     };
-    SERVER_CONFIG.get_or_init(|| ServerConfig {
+    let _ = SERVER_CONFIG.set(ServerConfig {
         algorithms: algorithms.clone(),
         host_key: hashmap! {
             HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve).unwrap(),

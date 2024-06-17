@@ -62,7 +62,9 @@ pub struct ClientAlgorithms {
     pub mac_algorithms_server_to_client: Vec<String>,
     pub compression_algorithms_client_to_server: Vec<String>,
     pub compression_algorithms_server_to_client: Vec<String>,
+    #[allow(dead_code)]
     pub languages_client_to_server: Vec<String>,
+    #[allow(dead_code)]
     pub languages_server_to_client: Vec<String>,
 }
 
@@ -93,9 +95,13 @@ pub struct Algorithms {
     pub encryption_algorithms_server_to_client: Algorithm<EncryptionAlgorithmDetails>,
     pub mac_algorithms_client_to_server: Algorithm<HmacAlgorithmDetails>,
     pub mac_algorithms_server_to_client: Algorithm<HmacAlgorithmDetails>,
+    #[allow(dead_code)]
     pub compression_algorithms_client_to_server: Algorithm<Option<CompressionAlgorithmDetails>>,
+    #[allow(dead_code)]
     pub compression_algorithms_server_to_client: Algorithm<Option<CompressionAlgorithmDetails>>,
+    #[allow(dead_code)]
     pub languages_client_to_server: String,
+    #[allow(dead_code)]
     pub languages_server_to_client: String,
 }
 

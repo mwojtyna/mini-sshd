@@ -1,5 +1,4 @@
 use std::{
-    cell::RefCell,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
 };
@@ -7,17 +6,17 @@ use std::{
 use algorithm_negotiation::Algorithms;
 use anyhow::{anyhow, Context, Result};
 use log::{debug, error, trace};
-use openssl::symm::{Crypter, Mode};
 
 use crate::{
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
-    encoding::{encode_mpint, PacketBuilder},
+    encoding::PacketBuilder,
     types::{DisconnectReason, MessageType, ServiceName},
     ServerConfig,
 };
 
 pub mod algorithm_negotiation;
+pub mod compute_secrets;
 pub mod key_exchange;
 pub mod userauth;
 
@@ -39,8 +38,6 @@ pub struct Session<'a> {
     enc_key_server_client: Vec<u8>,
     integrity_key_client_server: Vec<u8>,
     integrity_key_server_client: Vec<u8>,
-    encrypter: Option<RefCell<Crypter>>,
-    decrypter: Option<RefCell<Crypter>>,
 }
 
 #[derive(Default)]
@@ -71,8 +68,6 @@ impl<'a> Session<'a> {
             enc_key_server_client: Vec::new(),
             integrity_key_client_server: Vec::new(),
             integrity_key_server_client: Vec::new(),
-            encrypter: None,
-            decrypter: None,
         }
     }
 
@@ -106,12 +101,18 @@ impl<'a> Session<'a> {
         self.sequence_number
     }
 
-    pub fn algorithms(&self) -> Option<&Algorithms> {
-        self.algorithms.as_ref()
+    /// Panics if algorithms have not been negotiated yet
+    pub fn algorithms(&self) -> &Algorithms {
+        self.algorithms
+            .as_ref()
+            .expect("Algorithms not negotiated yet")
     }
 
-    pub fn crypto(&self) -> Option<&Crypto> {
-        self.crypto.as_ref()
+    /// Panics if algorithms have not been negotiated yet
+    pub fn crypto(&self) -> &Crypto {
+        self.crypto
+            .as_ref()
+            .expect("Crypto not initialized yet, algorithms have not been negotiated")
     }
 
     pub fn kex(&self) -> &KeyExchange {
@@ -140,14 +141,6 @@ impl<'a> Session<'a> {
 
     pub fn integrity_key_client_server(&self) -> &Vec<u8> {
         &self.integrity_key_client_server
-    }
-
-    pub fn decrypter(&self) -> Option<&RefCell<Crypter>> {
-        self.decrypter.as_ref()
-    }
-
-    pub fn encrypter(&self) -> Option<&RefCell<Crypter>> {
-        self.encrypter.as_ref()
     }
 
     // RFC 4253 § 4.2
@@ -256,79 +249,8 @@ impl<'a> Session<'a> {
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                let algos = self.algorithms().unwrap().clone();
-                let hash_algo = algos.kex_algorithm.details.hash;
-                let iv_len = algos
-                    .encryption_algorithms_client_to_server
-                    .details
-                    .cipher
-                    .iv_len()
-                    .unwrap();
-                let block_size = algos
-                    .encryption_algorithms_client_to_server
-                    .details
-                    .block_size;
-
                 let (k, h) = self.key_exchange(&mut reader)?;
-                let k = encode_mpint(&k);
-                let k = k.as_slice();
-                let h = h.as_slice();
-
-                self.session_id = h.to_vec();
-                self.iv_client_server =
-                    Crypto::hash(&[k, h, b"A", h].concat(), hash_algo)?[..iv_len].to_vec();
-                self.iv_server_client =
-                    Crypto::hash(&[k, h, b"B", h].concat(), hash_algo)?[..iv_len].to_vec();
-                self.enc_key_client_server =
-                    Crypto::hash(&[k, h, b"C", h].concat(), hash_algo)?[..block_size].to_vec();
-                self.enc_key_server_client =
-                    Crypto::hash(&[k, h, b"D", h].concat(), hash_algo)?[..block_size].to_vec();
-                self.integrity_key_client_server =
-                    Crypto::hash(&[k, h, b"E", h].concat(), hash_algo)?;
-                self.integrity_key_server_client =
-                    Crypto::hash(&[k, h, b"F", h].concat(), hash_algo)?;
-
-                let mut encrypter = Crypter::new(
-                    algos.encryption_algorithms_server_to_client.details.cipher,
-                    Mode::Encrypt,
-                    self.enc_key_server_client(),
-                    Some(self.iv_server_client()),
-                )?;
-                encrypter.pad(false);
-                self.encrypter = Some(RefCell::new(encrypter));
-
-                let mut decrypter = Crypter::new(
-                    algos.encryption_algorithms_client_to_server.details.cipher,
-                    Mode::Decrypt,
-                    self.enc_key_client_server(),
-                    Some(self.iv_client_server()),
-                )?;
-                decrypter.pad(false);
-                self.decrypter = Some(RefCell::new(decrypter));
-
-                if cfg!(debug_assertions) {
-                    trace!("session_id = {:02x?}", self.session_id);
-                    trace!("iv_len = {}", iv_len);
-                    trace!("iv_client_server = {:02x?}", self.iv_client_server);
-                    trace!("iv_server_client = {:02x?}", self.iv_server_client);
-                    trace!("block_size = {}", block_size);
-                    trace!(
-                        "enc_key_client_server = {:02x?}",
-                        self.enc_key_client_server
-                    );
-                    trace!(
-                        "enc_key_server_client = {:02x?}",
-                        self.enc_key_server_client
-                    );
-                    trace!(
-                        "integrity_key_client_server = {:02x?}",
-                        self.integrity_key_client_server
-                    );
-                    trace!(
-                        "integrity_key_server_client = {:02x?}",
-                        self.integrity_key_server_client
-                    );
-                }
+                self.compute_secrets(k, h)?;
             }
 
             MessageType::SSH_MSG_USERAUTH_REQUEST => {
