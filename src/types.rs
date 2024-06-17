@@ -154,3 +154,10 @@ def_enum!(pub ServiceName => &'static str {
     SSH_USERAUTH => "ssh-userauth",
     // SSH_CONNECTION => "ssh-connection",
 });
+
+def_enum!(pub AuthenticationMethod => &'static str {
+    PUBLIC_KEY => "publickey",
+    // PASSWORD => "password",
+    // HOSTBASED => "hostbased",
+    NONE => "none",
+});

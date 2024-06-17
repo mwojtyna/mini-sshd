@@ -73,6 +73,15 @@ impl PayloadReader {
         let bytes = self.iter.by_ref().take(n).collect();
         bytes
     }
+
+    pub fn next_bool(&mut self) -> Option<bool> {
+        let byte = self.next_byte()?;
+        if byte == 0 {
+            Some(false)
+        } else {
+            Some(true)
+        }
+    }
 }
 
 #[derive(Debug)]

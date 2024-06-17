@@ -19,6 +19,7 @@ use crate::{
 
 pub mod algorithm_negotiation;
 pub mod key_exchange;
+pub mod userauth;
 
 pub struct Session<'a> {
     stream: TcpStream,
@@ -328,6 +329,10 @@ impl<'a> Session<'a> {
                         self.integrity_key_server_client
                     );
                 }
+            }
+
+            MessageType::SSH_MSG_USERAUTH_REQUEST => {
+                self.userauth(&mut reader)?;
             }
 
             _ => {
