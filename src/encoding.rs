@@ -16,6 +16,7 @@ pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
 pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
 
 const MIN_PADDING: u8 = 4;
+const BLOCK_SIZE_NON_ENCRYPTED: usize = 8;
 
 pub struct PacketBuilder<'a> {
     payload: Vec<u8>,
@@ -49,7 +50,7 @@ impl<'a> PacketBuilder<'a> {
                 .details
                 .block_size
         } else {
-            8
+            BLOCK_SIZE_NON_ENCRYPTED
         };
 
         let p = PACKET_LENGTH_SIZE + PADDING_LENGTH_SIZE + self.payload.len();

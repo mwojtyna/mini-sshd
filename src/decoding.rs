@@ -10,13 +10,14 @@ use openssl::{
     bn::{BigNum, BigNumContext},
     ec::{EcGroup, EcKey, EcPoint},
     ecdsa::EcdsaSig,
+    nid::Nid,
     pkey::Public,
 };
 
 use crate::{
     encoding::{encode_string, PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
-    session::{algorithm_negotiation::Algorithm, Session},
-    types::{HostKeyAlgorithmDetails, MessageType},
+    session::Session,
+    types::MessageType,
 };
 
 const MAX_PACKET_LENGTH: u32 = 65535;
@@ -280,18 +281,15 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
 
 // RFC 5656 § 3.1
 /// `(public_key_bytes,_ec_key)`
-pub fn decode_ec_public_key(
-    key: &[u8],
-    algo: &Algorithm<HostKeyAlgorithmDetails>,
-) -> Result<(Vec<u8>, EcKey<Public>)> {
+pub fn decode_ec_public_key(key: &[u8], curve: Nid) -> Result<(Vec<u8>, EcKey<Public>)> {
     let mut reader = PayloadReader::new(key.to_vec());
-    let (q, ec_key) = decode_ec_key_public_key_reader(&mut reader, algo)?;
+    let (q, ec_key) = decode_ec_key_public_key_reader(&mut reader, curve)?;
 
     Ok((q, ec_key))
 }
 fn decode_ec_key_public_key_reader(
     reader: &mut PayloadReader,
-    algo: &Algorithm<HostKeyAlgorithmDetails>,
+    curve: Nid,
 ) -> Result<(Vec<u8>, EcKey<Public>)> {
     trace!("--- BEGIN EC PUBLIC KEY DECODING ---");
 
@@ -305,7 +303,7 @@ fn decode_ec_key_public_key_reader(
     trace!("q = {:02x?}", q);
 
     let mut ctx = BigNumContext::new()?;
-    let group = EcGroup::from_curve_name(algo.details.curve)?;
+    let group = EcGroup::from_curve_name(curve)?;
     let ec_point = EcPoint::from_bytes(&group, &q, &mut ctx)?;
     let ec_key = EcKey::from_public_key(&group, &ec_point)?;
 

@@ -1,21 +1,16 @@
 use anyhow::{anyhow, Result};
-use log::{debug, trace};
-use openssl::{hash::MessageDigest, nid::Nid};
+use log::{debug, error, trace};
 
 use crate::{
     crypto::Crypto,
-    decoding::{
-        decode_ec_public_key, decode_ec_signature, PayloadReader,
-    },
+    decoding::{decode_ec_public_key, decode_ec_signature, PayloadReader},
     encoding::{encode_string, PacketBuilder},
-    types::{AuthenticationMethod, HostKeyAlgorithm, HostKeyAlgorithmDetails, MessageType},
+    types::{AuthenticationMethod, HostKeyAlgorithm, MessageType},
 };
 
-use super::{algorithm_negotiation::Algorithm, Session};
+use super::Session;
 
-#[rustfmt::skip]
-const BANNER: &str = 
-r"######################################
+const BANNER: &str = r"######################################
 #                                    #
 #    mini-sshd by Mateusz Wojtyna    #
 #                                    # 
@@ -59,25 +54,16 @@ impl<'a> Session<'a> {
         user_name: &str,
         service_name: &str,
     ) -> Result<()> {
-        // TODO: Don't hardcode this
-        let client_public_key_algo: Algorithm<HostKeyAlgorithmDetails> = Algorithm {
-            name: HostKeyAlgorithm::ECDSA_SHA2_NISTP256.to_owned(),
-            details: HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-                curve: Nid::X9_62_PRIME256V1,
-            },
-        };
-
         let authenticate = reader.next_bool().ok_or(anyhow!("Invalid packet"))?;
 
         let public_key_alg_name = reader.next_string_utf8()?;
         debug!("public_key_algorithm_name = {}", public_key_alg_name);
 
-        if public_key_alg_name != client_public_key_algo.name {
-            return Err(anyhow!(
-                "Public key algorithm '{}' not supported",
-                public_key_alg_name
-            ));
+        if !HostKeyAlgorithm::VARIANTS.contains(&public_key_alg_name.as_str()) {
+            // Not returning error here, because we want to send a rejection packet
+            error!("Unsupported public key algorithm '{}'", public_key_alg_name);
+            self.reject(false)?;
+            return Ok(());
         }
 
         let public_key_blob = reader.next_string()?;
@@ -90,52 +76,76 @@ impl<'a> Session<'a> {
                 .build()?;
             self.send_packet(&pk_ok)?;
         } else {
+            let client_public_key_algo = self
+                .server_config
+                .algorithms
+                .server_host_key_algorithms
+                .get(&public_key_alg_name.as_str())
+                .unwrap();
+
             let signature = reader.next_string()?;
             trace!("signature = {:02x?}", signature);
 
             let signature = decode_ec_signature(&signature)?;
-            let (public_key_bytes, public_key) = decode_ec_public_key(&public_key_blob, &client_public_key_algo)?;
+            let (public_key_bytes, public_key) =
+                decode_ec_public_key(&public_key_blob, client_public_key_algo.curve)?;
             trace!("public_key = {:02x?}", public_key_bytes);
 
-            let mut digest_data = Vec::with_capacity(
-                (4 + self.session_id.len())
-                    + 1
-                    + (4 + user_name.len())
-                    + (4 + service_name.len())
-                    + (4 + AuthenticationMethod::PUBLIC_KEY.len())
-                    + 1
-                    + (4 + public_key_alg_name.len())
-                    + (4 + public_key_blob.len()),
+            let digest_data = self.concat_digest_data(
+                user_name,
+                service_name,
+                public_key_alg_name.clone(),
+                public_key_blob,
             );
-            digest_data.extend(encode_string(&self.session_id));
-            digest_data.push(MessageType::SSH_MSG_USERAUTH_REQUEST as u8);
-            digest_data.extend(encode_string(user_name.as_bytes()));
-            digest_data.extend(encode_string(service_name.as_bytes()));
-            digest_data.extend(encode_string(AuthenticationMethod::PUBLIC_KEY.as_bytes()));
-            digest_data.push(true as u8);
-            digest_data.extend(encode_string(public_key_alg_name.as_bytes()));
-            digest_data.extend(encode_string(&public_key_blob));
+            let digest = Crypto::hash(&digest_data, client_public_key_algo.hash)?;
 
-            let digest = Crypto::hash(&digest_data, client_public_key_algo.details.hash)?;
             let valid = signature.verify(&digest, &public_key)?;
-
             if !valid {
+                // Not returning error here, because we want to send a rejection packet
+                error!("Signature not valid");
                 self.reject(false)?;
-                return Err(anyhow!("Signature not valid"));
-            } else {
-                let banner_packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_BANNER, self)
-                    .write_string(BANNER.as_bytes())
-                    .write_string(b"en")
-                    .build()?;
-                self.send_packet(&banner_packet)?;
-
-                let packet =
-                    PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_SUCCESS, self).build()?;
-                self.send_packet(&packet)?;
+                return Ok(());
             }
+
+            let banner_packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_BANNER, self)
+                .write_string(BANNER.as_bytes())
+                .write_string(b"en")
+                .build()?;
+            self.send_packet(&banner_packet)?;
+
+            let packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_SUCCESS, self).build()?;
+            self.send_packet(&packet)?;
         }
 
         Ok(())
+    }
+
+    fn concat_digest_data(
+        &mut self,
+        user_name: &str,
+        service_name: &str,
+        public_key_alg_name: String,
+        public_key_blob: Vec<u8>,
+    ) -> Vec<u8> {
+        let mut digest_data = Vec::with_capacity(
+            (4 + self.session_id.len())
+                + 1
+                + (4 + user_name.len())
+                + (4 + service_name.len())
+                + (4 + AuthenticationMethod::PUBLIC_KEY.len())
+                + 1
+                + (4 + public_key_alg_name.len())
+                + (4 + public_key_blob.len()),
+        );
+        digest_data.extend(encode_string(&self.session_id));
+        digest_data.push(MessageType::SSH_MSG_USERAUTH_REQUEST as u8);
+        digest_data.extend(encode_string(user_name.as_bytes()));
+        digest_data.extend(encode_string(service_name.as_bytes()));
+        digest_data.extend(encode_string(AuthenticationMethod::PUBLIC_KEY.as_bytes()));
+        digest_data.push(true as u8);
+        digest_data.extend(encode_string(public_key_alg_name.as_bytes()));
+        digest_data.extend(encode_string(&public_key_blob));
+        digest_data
     }
 
     // RFC 4252 § 5.1
