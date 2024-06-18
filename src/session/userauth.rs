@@ -1,15 +1,15 @@
 use anyhow::{anyhow, Result};
 use log::{debug, error, trace};
-use openssl::hash::MessageDigest;
+use openssl::{hash::MessageDigest, nid::Nid};
 
 use crate::{
     crypto::Crypto,
     decoding::{decode_ec_signature, decode_openssh_ec_private_key, PayloadReader},
     encoding::{encode_string, PacketBuilder},
-    types::{AuthenticationMethod, MessageType},
+    types::{AuthenticationMethod, HostKeyAlgorithm, HostKeyAlgorithmDetails, MessageType},
 };
 
-use super::Session;
+use super::{algorithm_negotiation::Algorithm, Session};
 
 const PRIVATE_KEY: &str = include_str!("/home/mati/.ssh/localhost_id_ecdsa");
 
@@ -56,6 +56,15 @@ impl<'a> Session<'a> {
         user_name: &str,
         service_name: &str,
     ) -> Result<()> {
+        // TODO: Don't hardcode this
+        let client_public_key_algo: Algorithm<HostKeyAlgorithmDetails> = Algorithm {
+            name: HostKeyAlgorithm::ECDSA_SHA2_NISTP256.to_owned(),
+            details: HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1,
+            },
+        };
+
         let authenticate = reader.next_bool().ok_or(anyhow!("Invalid packet"))?;
 
         let public_key_alg_name = String::from_utf8(reader.next_string()?)?;
@@ -75,7 +84,7 @@ impl<'a> Session<'a> {
             trace!("signature = {:02x?}", signature);
 
             let signature = decode_ec_signature(&signature)?;
-            let private_key = decode_openssh_ec_private_key(PRIVATE_KEY)?;
+            let private_key = decode_openssh_ec_private_key(PRIVATE_KEY, &client_public_key_algo)?;
             trace!("private_key = {:02x?}", private_key.private_key());
 
             let mut digest_data = Vec::with_capacity(
@@ -97,7 +106,7 @@ impl<'a> Session<'a> {
             digest_data.extend(encode_string(public_key_alg_name.as_bytes()));
             digest_data.extend(encode_string(&public_key_blob));
 
-            let digest = Crypto::hash(&digest_data, MessageDigest::sha256())?;
+            let digest = Crypto::hash(&digest_data, client_public_key_algo.details.hash)?;
             let valid = signature.verify(&digest, &private_key)?;
 
             if !valid {
@@ -105,8 +114,8 @@ impl<'a> Session<'a> {
                 self.reject(false)?;
             } else {
                 let packet =
-                    &PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_SUCCESS, self).build()?;
-                self.send_packet(packet)?;
+                    PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_SUCCESS, self).build()?;
+                self.send_packet(&packet)?;
             }
         }
 

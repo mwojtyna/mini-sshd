@@ -17,8 +17,8 @@ use openssl::{
 
 use crate::{
     encoding::{encode_string, PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
-    session::Session,
-    types::MessageType,
+    session::{algorithm_negotiation::Algorithm, Session},
+    types::{HostKeyAlgorithmDetails, MessageType},
 };
 
 const MAX_PACKET_LENGTH: u32 = 65535;
@@ -206,7 +206,7 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     reader.read_exact(&mut mac)?;
 
     let valid = session.crypto().verify_mac(
-        session.sequence_number(),
+        session.client_sequence_number(),
         session.integrity_key_client_server(),
         // For some reason, this has to be encoded as string
         &encode_string(&packet_dec),
@@ -276,7 +276,10 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
 }
 
 // https://raw.githubusercontent.com/openssh/openssh-portable/master/PROTOCOL.key
-pub fn decode_openssh_ec_private_key(pem: &str) -> Result<EcKey<Private>> {
+pub fn decode_openssh_ec_private_key(
+    pem: &str,
+    algo: &Algorithm<HostKeyAlgorithmDetails>,
+) -> Result<EcKey<Private>> {
     trace!("--- BEGIN PRIVATE KEY DECODING ---");
 
     const AUTH_MAGIC: &[u8] = b"openssh-key-v1\0";
@@ -314,7 +317,7 @@ pub fn decode_openssh_ec_private_key(pem: &str) -> Result<EcKey<Private>> {
 
     let _num_keys = reader.next_u32()?;
 
-    let (public_key_bytes, public_key) = decode_ec_public_key(&reader.next_string()?)?;
+    let (public_key_bytes, public_key) = decode_ec_public_key(&reader.next_string()?, &algo)?;
     trace!("public_key = {:02x?}", public_key_bytes);
 
     let private_keys_list = reader.next_string()?;
@@ -331,7 +334,8 @@ pub fn decode_openssh_ec_private_key(pem: &str) -> Result<EcKey<Private>> {
         return Err(anyhow!("checkint1 != checkint2"));
     }
 
-    let _private_key_public_key_part = decode_ec_key_public_key_reader(&mut private_key_reader)?;
+    let _private_key_public_key_part =
+        decode_ec_key_public_key_reader(&mut private_key_reader, algo)?;
     let private_key = BigNum::from_slice(&private_key_reader.next_string()?)?;
     trace!("private_key = {:02x?}", private_key);
 
@@ -347,13 +351,19 @@ pub fn decode_openssh_ec_private_key(pem: &str) -> Result<EcKey<Private>> {
 
 // RFC 5656 § 3.1
 /// `(public_key_bytes,_ec_key)`
-pub fn decode_ec_public_key(key: &[u8]) -> Result<(Vec<u8>, EcKey<Public>)> {
+pub fn decode_ec_public_key(
+    key: &[u8],
+    algo: &Algorithm<HostKeyAlgorithmDetails>,
+) -> Result<(Vec<u8>, EcKey<Public>)> {
     let mut reader = PayloadReader::new(key.to_vec());
-    let (q, ec_key) = decode_ec_key_public_key_reader(&mut reader)?;
+    let (q, ec_key) = decode_ec_key_public_key_reader(&mut reader, algo)?;
 
     Ok((q, ec_key))
 }
-fn decode_ec_key_public_key_reader(reader: &mut PayloadReader) -> Result<(Vec<u8>, EcKey<Public>)> {
+fn decode_ec_key_public_key_reader(
+    reader: &mut PayloadReader,
+    algo: &Algorithm<HostKeyAlgorithmDetails>,
+) -> Result<(Vec<u8>, EcKey<Public>)> {
     trace!("--- BEGIN EC PUBLIC KEY DECODING ---");
 
     let name = String::from_utf8(reader.next_string()?)?;
@@ -366,7 +376,7 @@ fn decode_ec_key_public_key_reader(reader: &mut PayloadReader) -> Result<(Vec<u8
     trace!("q = {:02x?}", q);
 
     let mut ctx = BigNumContext::new()?;
-    let group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
+    let group = EcGroup::from_curve_name(algo.details.curve)?;
     let ec_point = EcPoint::from_bytes(&group, &q, &mut ctx)?;
     let ec_key = EcKey::from_public_key(&group, &ec_point)?;
 

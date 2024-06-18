@@ -11,7 +11,7 @@ use crate::{
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::PacketBuilder,
-    types::{DisconnectReason, MessageType, ServiceName},
+    types::{DisconnectReason, HostKeyAlgorithm, MessageType, ServiceName},
     ServerConfig,
 };
 
@@ -22,7 +22,8 @@ pub mod userauth;
 
 pub struct Session<'a> {
     stream: TcpStream,
-    sequence_number: u32,
+    server_sequence_number: u32,
+    client_sequence_number: u32,
 
     server_config: &'a ServerConfig,
     algorithms: Option<Algorithms>,
@@ -53,7 +54,8 @@ impl<'a> Session<'a> {
     pub fn new(stream: TcpStream, server_config: &'a ServerConfig) -> Self {
         Session {
             stream,
-            sequence_number: 0,
+            server_sequence_number: 0,
+            client_sequence_number: 0,
 
             server_config,
             algorithms: None,
@@ -88,6 +90,7 @@ impl<'a> Session<'a> {
                 self.disconnect(reason)?;
                 break;
             }
+            self.client_sequence_number = self.client_sequence_number.wrapping_add(1);
         }
 
         Ok(())
@@ -97,8 +100,12 @@ impl<'a> Session<'a> {
         &self.stream
     }
 
-    pub fn sequence_number(&self) -> u32 {
-        self.sequence_number
+    pub fn server_sequence_number(&self) -> u32 {
+        self.server_sequence_number
+    }
+
+    pub fn client_sequence_number(&self) -> u32 {
+        self.client_sequence_number
     }
 
     /// Panics if algorithms have not been negotiated yet
@@ -147,6 +154,7 @@ impl<'a> Session<'a> {
     fn ident_exchange(&mut self) -> Result<String> {
         debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
+        self.server_sequence_number = 0; // Sequence number doesn't increment for ident exchange
 
         let mut reader = BufReader::new(&mut self.stream);
         let mut client_ident = String::new();
@@ -193,8 +201,8 @@ impl<'a> Session<'a> {
         let packet = decode_packet(self)?;
         let msg_type = packet.message_type()?;
         debug!(
-            "Received message of type = {:?}, sequence_number = {}",
-            msg_type, self.sequence_number
+            "Received message of type = {:?}, server_sequence_number = {}, client_sequence_number = {}",
+            msg_type, self.server_sequence_number(), self.client_sequence_number()
         );
 
         let mut reader = PayloadReader::new(packet.payload());
@@ -238,14 +246,14 @@ impl<'a> Session<'a> {
 
                 // RFC 8308 § 2.3, 2.4
                 // Advertise extensions
-                // if self.kex().ext_info_c {
-                //     let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
-                //         .write_u32(1)
-                //         .write_string(b"server-sig-algs")
-                //         .write_name_list(HostKeyAlgorithm::VARIANTS)
-                //         .build()?;
-                //     self.send_packet(&packet)?;
-                // }
+                if self.kex().ext_info_c {
+                    let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
+                        .write_u32(1)
+                        .write_string(b"server-sig-algs")
+                        .write_name_list(HostKeyAlgorithm::VARIANTS)
+                        .build()?;
+                    self.send_packet(&packet)?;
+                }
             }
 
             MessageType::SSH_MSG_KEX_ECDH_INIT => {
@@ -265,13 +273,12 @@ impl<'a> Session<'a> {
                 );
 
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED, self)
-                    .write_u32(self.sequence_number)
+                    .write_u32(self.server_sequence_number())
                     .build()?;
                 self.send_packet(&packet)?;
             }
         }
 
-        self.sequence_number = self.sequence_number.wrapping_add(1);
         Ok(None)
     }
 
@@ -280,6 +287,8 @@ impl<'a> Session<'a> {
             .write_all(packet)
             .context("Failed sending packet")?;
         trace!("Packet sent");
+
+        self.server_sequence_number = self.server_sequence_number().wrapping_add(1);
 
         Ok(())
     }

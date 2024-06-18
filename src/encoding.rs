@@ -84,7 +84,7 @@ impl<'a> PacketBuilder<'a> {
             // Compute mac for unencrypted packet
             let mac = self.session.crypto().compute_mac(
                 self.session.integrity_key_server_client(),
-                self.session.sequence_number(),
+                self.session.server_sequence_number(),
                 &packet,
             )?;
             trace!("mac = {:02x?}", mac);
