@@ -4,14 +4,14 @@ use openssl::{hash::MessageDigest, nid::Nid};
 
 use crate::{
     crypto::Crypto,
-    decoding::{decode_ec_signature, decode_openssh_ec_private_key, PayloadReader},
+    decoding::{
+        decode_ec_public_key, decode_ec_signature, PayloadReader,
+    },
     encoding::{encode_string, PacketBuilder},
     types::{AuthenticationMethod, HostKeyAlgorithm, HostKeyAlgorithmDetails, MessageType},
 };
 
 use super::{algorithm_negotiation::Algorithm, Session};
-
-const PRIVATE_KEY: &str = include_str!("/home/mati/.ssh/localhost_id_ecdsa");
 
 #[rustfmt::skip]
 const BANNER: &str = 
@@ -94,8 +94,8 @@ impl<'a> Session<'a> {
             trace!("signature = {:02x?}", signature);
 
             let signature = decode_ec_signature(&signature)?;
-            let private_key = decode_openssh_ec_private_key(PRIVATE_KEY, &client_public_key_algo)?;
-            trace!("private_key = {:02x?}", private_key.private_key());
+            let (public_key_bytes, public_key) = decode_ec_public_key(&public_key_blob, &client_public_key_algo)?;
+            trace!("public_key = {:02x?}", public_key_bytes);
 
             let mut digest_data = Vec::with_capacity(
                 (4 + self.session_id.len())
@@ -117,7 +117,7 @@ impl<'a> Session<'a> {
             digest_data.extend(encode_string(&public_key_blob));
 
             let digest = Crypto::hash(&digest_data, client_public_key_algo.details.hash)?;
-            let valid = signature.verify(&digest, &private_key)?;
+            let valid = signature.verify(&digest, &public_key)?;
 
             if !valid {
                 self.reject(false)?;

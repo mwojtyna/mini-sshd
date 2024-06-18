@@ -7,12 +7,10 @@ use anyhow::{anyhow, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
 use openssl::{
-    base64,
     bn::{BigNum, BigNumContext},
     ec::{EcGroup, EcKey, EcPoint},
     ecdsa::EcdsaSig,
-    nid::Nid,
-    pkey::{Private, Public},
+    pkey::Public,
 };
 
 use crate::{
@@ -278,80 +276,6 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     }
 
     Ok(payload)
-}
-
-// https://raw.githubusercontent.com/openssh/openssh-portable/master/PROTOCOL.key
-pub fn decode_openssh_ec_private_key(
-    pem: &str,
-    algo: &Algorithm<HostKeyAlgorithmDetails>,
-) -> Result<EcKey<Private>> {
-    trace!("--- BEGIN PRIVATE KEY DECODING ---");
-
-    const AUTH_MAGIC: &[u8] = b"openssh-key-v1\0";
-
-    let private_key = pem
-        .split('\n')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<&str>>();
-    let private_key_contents = &private_key[1..private_key.len() - 1].join("");
-    let private_key_blob = base64::decode_block(private_key_contents)?;
-    trace!("private_key_blob = {:02x?}", private_key_blob);
-
-    let mut reader = PayloadReader::new(private_key_blob);
-
-    let auth_magic = reader.next_n_bytes(AUTH_MAGIC.len());
-    if auth_magic != AUTH_MAGIC {
-        return Err(anyhow!(
-            "Invalid private key format '{}'",
-            String::from_utf8_lossy(&auth_magic)
-        ));
-    }
-    trace!("auth_magic = {:?}", String::from_utf8(auth_magic)?);
-
-    let cipher_name = reader.next_string_utf8()?;
-    trace!("cipher_name = {:?}", cipher_name);
-    if cipher_name != "none" {
-        return Err(anyhow!("Keys encrypted using passphrase are not supported"));
-    }
-
-    let kdf_name = reader.next_string_utf8()?;
-    trace!("kdf_name = {:?}", kdf_name);
-
-    let kdf_options = reader.next_string_utf8()?;
-    trace!("kdf_options = {:?}", kdf_options);
-
-    let _num_keys = reader.next_u32()?;
-
-    let (public_key_bytes, public_key) = decode_ec_public_key(&reader.next_string()?, algo)?;
-    trace!("public_key = {:02x?}", public_key_bytes);
-
-    let private_keys_list = reader.next_string()?;
-    trace!("private_keys_list = {:02x?}", private_keys_list);
-
-    let mut private_key_reader = PayloadReader::new(private_keys_list);
-    let checkint1 = private_key_reader.next_u32()?;
-    trace!("checkint1 = {}", checkint1);
-
-    let checkint2 = private_key_reader.next_u32()?;
-    trace!("checkint2 = {}", checkint2);
-
-    if checkint1 != checkint2 {
-        return Err(anyhow!("checkint1 != checkint2"));
-    }
-
-    let _private_key_public_key_part =
-        decode_ec_key_public_key_reader(&mut private_key_reader, algo)?;
-    let private_key = BigNum::from_slice(&private_key_reader.next_string()?)?;
-    trace!("private_key = {:02x?}", private_key);
-
-    let comment = private_key_reader.next_string_utf8()?;
-    trace!("comment = {}", comment);
-
-    let ec_group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
-    let ec_key = EcKey::from_private_components(&ec_group, &private_key, public_key.public_key())?;
-
-    trace!("--- END PRIVATE KEY DECODING ---");
-    Ok(ec_key)
 }
 
 // RFC 5656 § 3.1
