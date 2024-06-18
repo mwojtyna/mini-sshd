@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use log::{debug, error, trace};
+use log::{debug, trace};
 use openssl::{hash::MessageDigest, nid::Nid};
 
 use crate::{
@@ -23,6 +23,7 @@ r"######################################
 ";
 
 impl<'a> Session<'a> {
+    // RFC 4252
     pub(super) fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN USERAUTH REQUEST ---");
 
@@ -72,6 +73,13 @@ impl<'a> Session<'a> {
         let public_key_alg_name = reader.next_string_utf8()?;
         debug!("public_key_algorithm_name = {}", public_key_alg_name);
 
+        if public_key_alg_name != client_public_key_algo.name {
+            return Err(anyhow!(
+                "Public key algorithm '{}' not supported",
+                public_key_alg_name
+            ));
+        }
+
         let public_key_blob = reader.next_string()?;
         trace!("public_key_blob = {:02x?}", public_key_blob);
 
@@ -112,8 +120,8 @@ impl<'a> Session<'a> {
             let valid = signature.verify(&digest, &private_key)?;
 
             if !valid {
-                error!("Signature not valid");
                 self.reject(false)?;
+                return Err(anyhow!("Signature not valid"));
             } else {
                 let banner_packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_BANNER, self)
                     .write_string(BANNER.as_bytes())

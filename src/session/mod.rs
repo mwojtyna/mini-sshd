@@ -215,6 +215,7 @@ impl<'a> Session<'a> {
             MessageType::SSH_MSG_UNIMPLEMENTED => { /* RFC 4253 § 11.4 - Must be ignored */ }
             MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
             MessageType::SSH_MSG_SERVICE_REQUEST => {
+                // RFC 4253 § 10
                 debug!("--- BEGIN SERVICE REQUEST ---");
 
                 let service_name = reader.next_string_utf8()?;
