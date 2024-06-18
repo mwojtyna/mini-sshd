@@ -217,7 +217,7 @@ impl<'a> Session<'a> {
             MessageType::SSH_MSG_SERVICE_REQUEST => {
                 debug!("--- BEGIN SERVICE REQUEST ---");
 
-                let service_name = String::from_utf8(reader.next_string()?)?;
+                let service_name = reader.next_string_utf8()?;
                 debug!("service_name = {}", service_name);
 
                 if service_name == ServiceName::SSH_USERAUTH {

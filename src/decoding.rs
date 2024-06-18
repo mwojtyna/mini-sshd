@@ -60,6 +60,11 @@ impl PayloadReader {
         Ok(string)
     }
 
+    pub fn next_string_utf8(&mut self) -> Result<String> {
+        let bytes = self.next_string()?;
+        Ok(String::from_utf8(bytes)?)
+    }
+
     pub fn next_byte(&mut self) -> Option<u8> {
         let byte = self.iter.by_ref().next()?;
         Some(byte)
@@ -303,21 +308,21 @@ pub fn decode_openssh_ec_private_key(
     }
     trace!("auth_magic = {:?}", String::from_utf8(auth_magic)?);
 
-    let cipher_name = String::from_utf8(reader.next_string()?)?;
+    let cipher_name = reader.next_string_utf8()?;
     trace!("cipher_name = {:?}", cipher_name);
     if cipher_name != "none" {
         return Err(anyhow!("Keys encrypted using passphrase are not supported"));
     }
 
-    let kdf_name = String::from_utf8(reader.next_string()?)?;
+    let kdf_name = reader.next_string_utf8()?;
     trace!("kdf_name = {:?}", kdf_name);
 
-    let kdf_options = String::from_utf8(reader.next_string()?)?;
+    let kdf_options = reader.next_string_utf8()?;
     trace!("kdf_options = {:?}", kdf_options);
 
     let _num_keys = reader.next_u32()?;
 
-    let (public_key_bytes, public_key) = decode_ec_public_key(&reader.next_string()?, &algo)?;
+    let (public_key_bytes, public_key) = decode_ec_public_key(&reader.next_string()?, algo)?;
     trace!("public_key = {:02x?}", public_key_bytes);
 
     let private_keys_list = reader.next_string()?;
@@ -339,7 +344,7 @@ pub fn decode_openssh_ec_private_key(
     let private_key = BigNum::from_slice(&private_key_reader.next_string()?)?;
     trace!("private_key = {:02x?}", private_key);
 
-    let comment = String::from_utf8(private_key_reader.next_string()?)?;
+    let comment = private_key_reader.next_string_utf8()?;
     trace!("comment = {}", comment);
 
     let ec_group = EcGroup::from_curve_name(Nid::X9_62_PRIME256V1)?;
@@ -366,10 +371,10 @@ fn decode_ec_key_public_key_reader(
 ) -> Result<(Vec<u8>, EcKey<Public>)> {
     trace!("--- BEGIN EC PUBLIC KEY DECODING ---");
 
-    let name = String::from_utf8(reader.next_string()?)?;
+    let name = reader.next_string_utf8()?;
     trace!("name = {:?}", name);
 
-    let ident = String::from_utf8(reader.next_string()?)?;
+    let ident = reader.next_string_utf8()?;
     trace!("ident = {:?}", ident);
 
     let q = reader.next_string()?;

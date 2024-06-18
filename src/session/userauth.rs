@@ -26,12 +26,12 @@ impl<'a> Session<'a> {
     pub(super) fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN USERAUTH REQUEST ---");
 
-        let user_name = String::from_utf8(reader.next_string()?)?;
+        let user_name = reader.next_string_utf8()?;
         trace!("username = {}", user_name);
 
-        let service_name = String::from_utf8(reader.next_string()?)?;
+        let service_name = reader.next_string_utf8()?;
 
-        let method_name = String::from_utf8(reader.next_string()?)?;
+        let method_name = reader.next_string_utf8()?;
         debug!("method_name = {}", method_name);
 
         match method_name.as_str() {
@@ -69,7 +69,7 @@ impl<'a> Session<'a> {
 
         let authenticate = reader.next_bool().ok_or(anyhow!("Invalid packet"))?;
 
-        let public_key_alg_name = String::from_utf8(reader.next_string()?)?;
+        let public_key_alg_name = reader.next_string_utf8()?;
         debug!("public_key_algorithm_name = {}", public_key_alg_name);
 
         let public_key_blob = reader.next_string()?;
