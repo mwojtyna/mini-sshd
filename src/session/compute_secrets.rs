@@ -61,29 +61,27 @@ impl<'a> Session<'a> {
             .unwrap()
             .init_crypters(encrypter, decrypter);
 
-        if cfg!(debug_assertions) {
-            trace!("session_id = {:02x?}", self.session_id);
-            trace!("iv_len = {}", iv_len);
-            trace!("iv_client_server = {:02x?}", self.iv_client_server);
-            trace!("iv_server_client = {:02x?}", self.iv_server_client);
-            trace!("block_size = {}", block_size);
-            trace!(
-                "enc_key_client_server = {:02x?}",
-                self.enc_key_client_server
-            );
-            trace!(
-                "enc_key_server_client = {:02x?}",
-                self.enc_key_server_client
-            );
-            trace!(
-                "integrity_key_client_server = {:02x?}",
-                self.integrity_key_client_server
-            );
-            trace!(
-                "integrity_key_server_client = {:02x?}",
-                self.integrity_key_server_client
-            );
-        }
+        trace!("session_id = {:02x?}", self.session_id);
+        trace!("iv_len = {}", iv_len);
+        trace!("iv_client_server = {:02x?}", self.iv_client_server);
+        trace!("iv_server_client = {:02x?}", self.iv_server_client);
+        trace!("block_size = {}", block_size);
+        trace!(
+            "enc_key_client_server = {:02x?}",
+            self.enc_key_client_server
+        );
+        trace!(
+            "enc_key_server_client = {:02x?}",
+            self.enc_key_server_client
+        );
+        trace!(
+            "integrity_key_client_server = {:02x?}",
+            self.integrity_key_client_server
+        );
+        trace!(
+            "integrity_key_server_client = {:02x?}",
+            self.integrity_key_server_client
+        );
 
         Ok(())
     }

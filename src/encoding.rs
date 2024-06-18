@@ -3,9 +3,13 @@ use std::mem::size_of;
 use anyhow::Result;
 use log::{debug, log_enabled, trace, Level};
 use num_traits::FromPrimitive;
-use openssl::bn::BigNumRef;
+use openssl::{bn::BigNumRef, ecdsa::EcdsaSigRef};
 
-use crate::{crypto::Crypto, session::Session, types::MessageType};
+use crate::{
+    crypto::Crypto,
+    session::{algorithm_negotiation::Algorithm, Session},
+    types::{HostKeyAlgorithmDetails, MessageType},
+};
 
 pub const PACKET_LENGTH_SIZE: usize = size_of::<u32>();
 pub const PADDING_LENGTH_SIZE: usize = size_of::<u8>();
@@ -191,36 +195,45 @@ pub fn encode_name_list(names: &[&str]) -> Vec<u8> {
 }
 
 pub fn encode_string(data: &[u8]) -> Vec<u8> {
-    trace!("-- BEGIN STRING ENCODING --");
-    trace!("length = {}", data.len());
-    trace!("data = {:02x?}", data);
-
     let mut string = Vec::with_capacity(STRING_LENGTH_SIZE + data.len());
     let length_bytes = encode_u32(data.len() as u32);
     string.extend_from_slice(&length_bytes);
     string.extend_from_slice(data);
-
-    trace!("string = {:02x?}", string);
-    if log_enabled!(Level::Trace) {
-        trace!("string = {:?}", String::from_utf8_lossy(&string));
-    }
-
-    trace!("-- END STRING ENCODING --");
     string
 }
 
 pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
-    trace!("-- BEGIN MPINT ENCODING --");
-
     let mut bin = data.to_vec();
-    trace!("data = {:02x?}, length = {}", bin, bin.len());
-
     if !bin.is_empty() && (bin[0] & 0b1000_0000) != 0 {
         trace!("Adding a zero byte to the beginning of mpint");
         bin.insert(0, 0);
     }
+    encode_string(&bin)
+}
 
-    let mpint = encode_string(&bin);
-    trace!("-- END MPINT ENCODING --");
-    mpint
+// RFC 5656 § 3.1
+pub fn encode_ec_public_key(
+    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
+    key: &[u8],
+) -> Result<Vec<u8>> {
+    let split: Vec<&str> = algorithm.name.split('-').collect();
+    let ident = split.last().unwrap();
+
+    let blob = [encode_string(ident.as_bytes()), encode_string(key)].concat();
+
+    Ok([encode_string(algorithm.name.as_bytes()), blob].concat())
+}
+
+// RFC 5656 § 3.1.1
+pub fn encode_ec_signature(
+    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
+    sig: &EcdsaSigRef,
+) -> Result<Vec<u8>> {
+    let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
+
+    Ok([
+        encode_string(algorithm.name.as_bytes()),
+        encode_string(&signature_blob),
+    ]
+    .concat())
 }

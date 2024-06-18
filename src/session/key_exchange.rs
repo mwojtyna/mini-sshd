@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use log::debug;
-use openssl::{bn::BigNum, ecdsa::EcdsaSigRef};
+use openssl::bn::BigNum;
 
 use crate::{
     decoding::PayloadReader,
-    encoding::{encode_mpint, encode_string, PacketBuilder},
-    types::{HostKeyAlgorithmDetails, MessageType},
+    encoding::{
+        encode_ec_public_key, encode_ec_signature, encode_mpint, encode_string, PacketBuilder,
+    },
+    types::MessageType,
     Session,
 };
-
-use super::algorithm_negotiation::Algorithm;
 
 impl Session<'_> {
     // RFC 5656 § 4
@@ -56,7 +56,7 @@ impl Session<'_> {
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
             .context("Failed to hash and sign")?;
 
-        let signature_enc = encode_signature(server_host_key_algorithm, &signed_exchange_hash)?;
+        let signature_enc = encode_ec_signature(server_host_key_algorithm, &signed_exchange_hash)?;
 
         let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY, self)
             .write_string(&k_s)
@@ -91,31 +91,4 @@ fn concat_hash_data(
     let k = encode_mpint(k);
 
     Ok([v_c, v_s, i_c, i_s, k_s, q_c, q_s, k].concat())
-}
-
-// RFC 5656 § 3.1
-pub fn encode_ec_public_key(
-    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
-    key: &[u8],
-) -> Result<Vec<u8>> {
-    let split: Vec<&str> = algorithm.name.split('-').collect();
-    let ident = split.last().unwrap();
-
-    let blob = [encode_string(ident.as_bytes()), encode_string(key)].concat();
-
-    Ok([encode_string(algorithm.name.as_bytes()), blob].concat())
-}
-
-// RFC 5656 § 3.1.1
-pub fn encode_signature(
-    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
-    sig: &EcdsaSigRef,
-) -> Result<Vec<u8>> {
-    let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
-
-    Ok([
-        encode_string(algorithm.name.as_bytes()),
-        encode_string(&signature_blob),
-    ]
-    .concat())
 }

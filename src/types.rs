@@ -30,6 +30,7 @@ pub enum MessageType {
     SSH_MSG_USERAUTH_BANNER = 53,
 
     // 60 to 79 - User authentication method specific (numbers can be reused for different authentication methods)
+    SSH_MSG_USERAUTH_PK_OK = 60,
 
     // Connection protocol:
     // 80 to 89 - Connection protocol generic
