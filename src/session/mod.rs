@@ -5,7 +5,7 @@ use std::{
 
 use algorithm_negotiation::Algorithms;
 use anyhow::{anyhow, Context, Result};
-use log::{debug, error, trace};
+use log::{debug, error, info, trace};
 
 use crate::{
     crypto::Crypto,
@@ -75,8 +75,8 @@ impl<'a> Session<'a> {
 
     /// This will handle all incoming packets, blocking this thread until disconnect.
     pub fn start(&mut self) -> Result<()> {
-        debug!(
-            "Spawned new thread for client on address {}",
+        info!(
+            "Created new session for client on address {}",
             self.stream.peer_addr().unwrap()
         );
 

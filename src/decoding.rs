@@ -280,18 +280,10 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
 }
 
 // RFC 5656 § 3.1
-/// `(public_key_bytes,_ec_key)`
+/// `(public_key_bytes, ec_key)`
 pub fn decode_ec_public_key(key: &[u8], curve: Nid) -> Result<(Vec<u8>, EcKey<Public>)> {
-    let mut reader = PayloadReader::new(key.to_vec());
-    let (q, ec_key) = decode_ec_key_public_key_reader(&mut reader, curve)?;
-
-    Ok((q, ec_key))
-}
-fn decode_ec_key_public_key_reader(
-    reader: &mut PayloadReader,
-    curve: Nid,
-) -> Result<(Vec<u8>, EcKey<Public>)> {
     trace!("--- BEGIN EC PUBLIC KEY DECODING ---");
+    let mut reader = PayloadReader::new(key.to_vec());
 
     let name = reader.next_string_utf8()?;
     trace!("name = {:?}", name);

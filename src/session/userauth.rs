@@ -61,8 +61,10 @@ impl<'a> Session<'a> {
 
         if !HostKeyAlgorithm::VARIANTS.contains(&public_key_alg_name.as_str()) {
             // Not returning error here, because we want to send a rejection packet
-            error!("Unsupported public key algorithm '{}'", public_key_alg_name);
-            self.reject(false)?;
+            self.reject_with_err(
+                false,
+                format!("Unsupported public key algorithm '{}'", public_key_alg_name).as_str(),
+            )?;
             return Ok(());
         }
 
@@ -79,7 +81,7 @@ impl<'a> Session<'a> {
             let client_public_key_algo = self
                 .server_config
                 .algorithms
-                .server_host_key_algorithms
+                .client_host_key_algorithms
                 .get(&public_key_alg_name.as_str())
                 .unwrap();
 
@@ -90,6 +92,15 @@ impl<'a> Session<'a> {
             let (public_key_bytes, public_key) =
                 decode_ec_public_key(&public_key_blob, client_public_key_algo.curve)?;
             trace!("public_key = {:02x?}", public_key_bytes);
+
+            if !self
+                .server_config
+                .authorized_keys
+                .contains(&public_key_bytes)
+            {
+                self.reject_with_err(false, "Public key not in 'authorized_keys' file")?;
+                return Ok(());
+            }
 
             let digest_data = self.concat_digest_data(
                 user_name,
@@ -102,8 +113,7 @@ impl<'a> Session<'a> {
             let valid = signature.verify(&digest, &public_key)?;
             if !valid {
                 // Not returning error here, because we want to send a rejection packet
-                error!("Signature not valid");
-                self.reject(false)?;
+                self.reject_with_err(false, "Signature not valid")?;
                 return Ok(());
             }
 
@@ -162,6 +172,11 @@ impl<'a> Session<'a> {
             .build()?;
         self.send_packet(&packet)?;
 
+        Ok(())
+    }
+    fn reject_with_err(&mut self, partial_success: bool, error_msg: &str) -> Result<()> {
+        error!("{}", error_msg);
+        self.reject(partial_success)?;
         Ok(())
     }
 }

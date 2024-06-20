@@ -1,10 +1,19 @@
-use std::{collections::HashMap, net::TcpListener, sync::OnceLock, thread};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::read_to_string,
+    net::TcpListener,
+    path::Path,
+    sync::OnceLock,
+    thread,
+};
 
 use anyhow::{Context, Result};
 use crypto::{Crypto, EcHostKey};
+use decoding::decode_ec_public_key;
+use dirs::home_dir;
 use indexmap::indexmap;
-use log::{debug, error};
-use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
+use log::{debug, error, trace, warn};
+use openssl::{base64, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
 use types::{
     CompressionAlgorithm, EncryptionAlgorithm, EncryptionAlgorithmDetails, HmacAlgorithm,
@@ -19,14 +28,18 @@ mod session;
 mod types;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+// TODO: Config file
 pub const PORT: usize = 6969;
+const AUTHORIZED_KEYS_PATH: &str = ".ssh/authorized_keys";
 
 static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
 pub struct ServerConfig {
+    ident_string: String,
     algorithms: ServerAlgorithms,
     host_key: HashMap<&'static str, EcHostKey>,
-    ident_string: String,
+    authorized_keys: HashSet<Vec<u8>>,
 }
 
 fn main() -> Result<()> {
@@ -51,6 +64,21 @@ fn main() -> Result<()> {
 
         // RFC 5656 § 10.1
         server_host_key_algorithms: indexmap! {
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha384(),
+                curve: Nid::SECP384R1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha512(),
+                curve: Nid::SECP521R1
+            },
+        },
+
+        client_host_key_algorithms: indexmap! {
             HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
                 hash: MessageDigest::sha256(),
                 curve: Nid::X9_62_PRIME256V1
@@ -101,14 +129,20 @@ fn main() -> Result<()> {
         languages_client_to_server: vec![""],
         languages_server_to_client: vec![""],
     };
+
+    let authorized_keys =
+        read_authorized_keys(&algorithms).context("Failed to read 'authorized_keys' file")?;
+    trace!("authorized_keys = {:02x?}", authorized_keys);
+
     let _ = SERVER_CONFIG.set(ServerConfig {
+        ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
         algorithms: algorithms.clone(),
         host_key: hashmap! {
             HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve).unwrap(),
             HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve).unwrap(),
             HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP521).unwrap().curve).unwrap()
         },
-        ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
+        authorized_keys,
     });
 
     if let Err(err) = connect() {
@@ -116,6 +150,45 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Vec<u8>>> {
+    trace!("--- BEGIN AUTHORIZED_KEYS READ ---");
+
+    let home = home_dir().context("Failed to get home directory")?;
+    let path = Path::new(AUTHORIZED_KEYS_PATH);
+    let contents = read_to_string(home.join(path))?;
+    let split: Vec<&str> = contents.trim().split('\n').collect();
+    let mut public_keys = HashSet::new();
+
+    for (n, line) in split.iter().enumerate() {
+        let mut parts = line.split(' ');
+        let algo_name = parts.next().context("Failed reading algorithm name")?;
+        trace!("algo_name_{}: {}", n, algo_name);
+
+        let algo = supported_algos.client_host_key_algorithms.get(algo_name);
+        if let Some(algo) = algo {
+            let public_key_b64 = parts.next().context("Failed reading public key")?;
+            trace!("public_key_b64_{}: {}", n, public_key_b64);
+
+            let public_key_encoded = base64::decode_block(public_key_b64)?;
+            trace!("public_key_{}: {:02x?}", n, public_key_encoded);
+
+            let (public_key_bytes, _) = decode_ec_public_key(&public_key_encoded, algo.curve)?;
+            public_keys.insert(public_key_bytes);
+
+            let host = parts.next().context("Failed reading host")?;
+            trace!("host_{}: {}", n, host);
+        } else {
+            warn!(
+                "Unsupported public key algorithm '{}' in 'authorized_keys' file, skipping...",
+                algo_name
+            );
+        }
+    }
+
+    trace!("--- END AUTHORIZED_KEYS READ ---");
+    Ok(public_keys)
 }
 
 fn connect() -> Result<()> {

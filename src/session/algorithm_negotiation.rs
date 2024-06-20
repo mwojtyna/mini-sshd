@@ -22,6 +22,7 @@ type AlgorithmsCollection<D> = IndexMap<&'static str, D>;
 pub struct ServerAlgorithms {
     pub kex_algorithms: AlgorithmsCollection<KexAlgorithmDetails>,
     pub server_host_key_algorithms: AlgorithmsCollection<HostKeyAlgorithmDetails>,
+    pub client_host_key_algorithms: AlgorithmsCollection<HostKeyAlgorithmDetails>,
     pub encryption_algorithms_client_to_server: AlgorithmsCollection<EncryptionAlgorithmDetails>,
     pub encryption_algorithms_server_to_client: AlgorithmsCollection<EncryptionAlgorithmDetails>,
     pub mac_algorithms_client_to_server: AlgorithmsCollection<HmacAlgorithmDetails>,
@@ -143,7 +144,7 @@ impl Session<'_> {
         Ok(negotiated)
     }
 
-    fn algos_to_names<V>(algo: &IndexMap<&'static str, V>) -> Vec<&'static str> {
+    fn algos_to_names<V>(algo: &AlgorithmsCollection<V>) -> Vec<&str> {
         algo.keys().copied().collect()
     }
     fn encode_server_algorithms(
