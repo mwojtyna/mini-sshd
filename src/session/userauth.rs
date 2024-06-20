@@ -1,10 +1,12 @@
+use core::mem::size_of;
+
 use anyhow::{anyhow, Result};
 use log::{debug, error, trace};
 
 use crate::{
     crypto::Crypto,
     decoding::{decode_ec_public_key, decode_ec_signature, PayloadReader},
-    encoding::{encode_string, PacketBuilder},
+    encoding::{encode_string, PacketBuilder, STRING_LENGTH_SIZE},
     types::{AuthenticationMethod, HostKeyAlgorithm, MessageType},
 };
 
@@ -138,14 +140,14 @@ impl<'a> Session<'a> {
         public_key_blob: Vec<u8>,
     ) -> Vec<u8> {
         let mut digest_data = Vec::with_capacity(
-            (4 + self.session_id.len())
-                + 1
-                + (4 + user_name.len())
-                + (4 + service_name.len())
-                + (4 + AuthenticationMethod::PUBLIC_KEY.len())
-                + 1
-                + (4 + public_key_alg_name.len())
-                + (4 + public_key_blob.len()),
+            (STRING_LENGTH_SIZE + self.session_id.len())
+                + size_of::<u8>()
+                + (STRING_LENGTH_SIZE + user_name.len())
+                + (STRING_LENGTH_SIZE + service_name.len())
+                + (STRING_LENGTH_SIZE + AuthenticationMethod::PUBLIC_KEY.len())
+                + size_of::<u8>()
+                + (STRING_LENGTH_SIZE + public_key_alg_name.len())
+                + (STRING_LENGTH_SIZE + public_key_blob.len()),
         );
         digest_data.extend(encode_string(&self.session_id));
         digest_data.push(MessageType::SSH_MSG_USERAUTH_REQUEST as u8);
@@ -160,11 +162,11 @@ impl<'a> Session<'a> {
 
     // RFC 4252 § 5.1
     fn reject(&mut self, partial_success: bool) -> Result<()> {
-        let auths = AuthenticationMethod::VARIANTS
+        let auths: Vec<&str> = AuthenticationMethod::VARIANTS
             .iter()
             .filter(|m| **m != AuthenticationMethod::NONE)
             .copied()
-            .collect::<Vec<&str>>();
+            .collect();
 
         let packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_FAILURE, self)
             .write_name_list(&auths)

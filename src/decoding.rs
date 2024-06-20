@@ -1,5 +1,6 @@
 use std::{
     io::{BufReader, Read},
+    mem::size_of,
     net::TcpStream,
 };
 
@@ -37,11 +38,11 @@ impl PayloadReader {
     // RFC 4251 § 5
     pub fn next_name_list(&mut self) -> Result<Vec<String>> {
         let iter = self.iter.by_ref();
-        let length_bytes = iter.take(PACKET_LENGTH_SIZE).collect::<Vec<u8>>();
+        let length_bytes: Vec<u8> = iter.take(PACKET_LENGTH_SIZE).collect();
 
         let length = u8_array_to_u32(length_bytes.as_slice())?;
 
-        let value_bytes = iter.take(length as usize).collect::<Vec<u8>>();
+        let value_bytes: Vec<u8> = iter.take(length as usize).collect();
         let value =
             String::from_utf8(value_bytes).context("Failed to decode name-list to string")?;
 
@@ -52,7 +53,7 @@ impl PayloadReader {
     // RFC 4251 § 5
     pub fn next_string(&mut self) -> Result<Vec<u8>> {
         let iter = self.iter.by_ref();
-        let length_bytes = iter.take(STRING_LENGTH_SIZE).collect::<Vec<u8>>();
+        let length_bytes: Vec<u8> = iter.take(STRING_LENGTH_SIZE).collect();
         let length = u8_array_to_u32(&length_bytes)?;
 
         let string = iter.take(length as usize).collect();
@@ -259,7 +260,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     trace!("padding_length = {} bytes", padding_length);
 
     let n1 = packet_length - (padding_length as u32) - 1;
-    let payload = reader.take(n1 as usize).collect::<Vec<u8>>();
+    let payload: Vec<u8> = reader.take(n1 as usize).collect();
 
     if log_enabled!(Level::Trace) {
         trace!("payload = {:?}", String::from_utf8_lossy(&payload));
@@ -268,7 +269,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     let random_padding = reader.take(padding_length as usize).collect::<Vec<u8>>();
     trace!("random_padding = {:02x?}", random_padding);
 
-    let bytes_left = packet_length - 1 - n1 - padding_length as u32;
+    let bytes_left = packet_length - size_of::<u8>() as u32 - n1 - padding_length as u32;
     if bytes_left != 0 {
         return Err(anyhow!(
             "Didn't decode entire packet, {} bytes left",
