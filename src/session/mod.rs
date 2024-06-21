@@ -1,10 +1,12 @@
 use std::{
+    collections::HashMap,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
 };
 
 use algorithm_negotiation::Algorithms;
 use anyhow::{anyhow, Context, Result};
+use channel::Channel;
 use log::{debug, error, info, trace};
 
 use crate::{
@@ -16,6 +18,7 @@ use crate::{
 };
 
 pub mod algorithm_negotiation;
+pub mod channel;
 pub mod compute_secrets;
 pub mod key_exchange;
 pub mod userauth;
@@ -30,6 +33,7 @@ pub struct Session<'a> {
     crypto: Option<Crypto>,
 
     kex: KeyExchange,
+    channels: HashMap<u32, Channel>,
 
     // Secrets
     session_id: Vec<u8>,
@@ -62,6 +66,7 @@ impl<'a> Session<'a> {
             crypto: None,
 
             kex: KeyExchange::default(),
+            channels: HashMap::new(),
 
             session_id: Vec::new(),
             iv_client_server: Vec::new(),
@@ -265,6 +270,8 @@ impl<'a> Session<'a> {
             MessageType::SSH_MSG_USERAUTH_REQUEST => {
                 self.userauth(&mut reader)?;
             }
+
+            MessageType::SSH_MSG_CHANNEL_OPEN => self.open_channel(&mut reader)?,
 
             _ => {
                 error!(

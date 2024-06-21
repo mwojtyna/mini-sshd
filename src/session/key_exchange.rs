@@ -15,7 +15,7 @@ impl Session<'_> {
     // RFC 5656 § 4
     /// # Returns
     /// `(shared_secret, hash)`
-    pub(super) fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
+    pub fn key_exchange(&mut self, reader: &mut PayloadReader) -> Result<(BigNum, Vec<u8>)> {
         debug!("--- BEGIN KEY EXCHANGE ---");
 
         // Client's public key

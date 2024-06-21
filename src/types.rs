@@ -77,6 +77,7 @@ pub enum DisconnectReason {
     SSH_DISCONNECT_ILLEGAL_USER_NAME = 15,
 }
 
+#[macro_export]
 macro_rules! def_enum {
     ($vis:vis $name:ident => $ty:ty {
         $($variant:ident => $val:expr),+
@@ -154,11 +155,4 @@ pub struct CompressionAlgorithmDetails {}
 def_enum!(pub ServiceName => &'static str {
     SSH_USERAUTH => "ssh-userauth",
     // SSH_CONNECTION => "ssh-connection",
-});
-
-def_enum!(pub AuthenticationMethod => &'static str {
-    PUBLIC_KEY => "publickey",
-    // PASSWORD => "password",
-    // HOSTBASED => "hostbased",
-    NONE => "none",
 });

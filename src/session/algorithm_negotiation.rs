@@ -108,7 +108,7 @@ pub struct Algorithms {
 
 impl Session<'_> {
     // RFC 4253 § 7
-    pub(super) fn algorithm_negotiation(
+    pub fn algorithm_negotiation(
         &mut self,
         packet: &DecodedPacket,
         reader: &mut PayloadReader,

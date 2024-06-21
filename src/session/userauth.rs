@@ -6,8 +6,9 @@ use log::{debug, error, trace};
 use crate::{
     crypto::Crypto,
     decoding::{decode_ec_public_key, decode_ec_signature, PayloadReader},
+    def_enum,
     encoding::{encode_string, PacketBuilder, STRING_LENGTH_SIZE},
-    types::{AuthenticationMethod, HostKeyAlgorithm, MessageType},
+    types::{HostKeyAlgorithm, MessageType},
 };
 
 use super::Session;
@@ -19,9 +20,16 @@ const BANNER: &str = r"######################################
 ######################################
 ";
 
+def_enum!(pub AuthenticationMethod => &'static str {
+    PUBLIC_KEY => "publickey",
+    PASSWORD => "password",
+    HOSTBASED => "hostbased",
+    NONE => "none",
+});
+
 impl<'a> Session<'a> {
     // RFC 4252
-    pub(super) fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
+    pub fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN USERAUTH REQUEST ---");
 
         let user_name = reader.next_string_utf8()?;
@@ -34,14 +42,14 @@ impl<'a> Session<'a> {
 
         match method_name.as_str() {
             AuthenticationMethod::NONE => {
-                self.reject(false)?;
+                reject(self, false)?;
             }
             AuthenticationMethod::PUBLIC_KEY => {
                 self.public_key_auth(reader, &user_name, &service_name)?;
             }
 
             _ => {
-                self.reject(false)?;
+                reject(self, false)?;
             }
         }
 
@@ -63,7 +71,8 @@ impl<'a> Session<'a> {
 
         if !HostKeyAlgorithm::VARIANTS.contains(&public_key_alg_name.as_str()) {
             // Not returning error here, because we want to send a rejection packet
-            self.reject_with_err(
+            reject_with_err(
+                self,
                 false,
                 format!("Unsupported public key algorithm '{}'", public_key_alg_name).as_str(),
             )?;
@@ -100,7 +109,7 @@ impl<'a> Session<'a> {
                 .authorized_keys
                 .contains(&public_key_bytes)
             {
-                self.reject_with_err(false, "Public key not in 'authorized_keys' file")?;
+                reject_with_err(self, false, "Public key not in 'authorized_keys' file")?;
                 return Ok(());
             }
 
@@ -115,7 +124,7 @@ impl<'a> Session<'a> {
             let valid = signature.verify(&digest, &public_key)?;
             if !valid {
                 // Not returning error here, because we want to send a rejection packet
-                self.reject_with_err(false, "Signature not valid")?;
+                reject_with_err(self, false, "Signature not valid")?;
                 return Ok(());
             }
 
@@ -159,26 +168,26 @@ impl<'a> Session<'a> {
         digest_data.extend(encode_string(&public_key_blob));
         digest_data
     }
+}
 
-    // RFC 4252 § 5.1
-    fn reject(&mut self, partial_success: bool) -> Result<()> {
-        let auths: Vec<&str> = AuthenticationMethod::VARIANTS
-            .iter()
-            .filter(|m| **m != AuthenticationMethod::NONE)
-            .copied()
-            .collect();
+// RFC 4252 § 5.1
+fn reject(session: &mut Session, partial_success: bool) -> Result<()> {
+    let auths: Vec<&str> = AuthenticationMethod::VARIANTS
+        .iter()
+        .filter(|m| **m != AuthenticationMethod::NONE)
+        .copied()
+        .collect();
 
-        let packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_FAILURE, self)
-            .write_name_list(&auths)
-            .write_bool(partial_success)
-            .build()?;
-        self.send_packet(&packet)?;
+    let packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_FAILURE, session)
+        .write_name_list(&auths)
+        .write_bool(partial_success)
+        .build()?;
+    session.send_packet(&packet)?;
 
-        Ok(())
-    }
-    fn reject_with_err(&mut self, partial_success: bool, error_msg: &str) -> Result<()> {
-        error!("{}", error_msg);
-        self.reject(partial_success)?;
-        Ok(())
-    }
+    Ok(())
+}
+fn reject_with_err(session: &mut Session, partial_success: bool, error_msg: &str) -> Result<()> {
+    error!("{}", error_msg);
+    reject(session, partial_success)?;
+    Ok(())
 }
