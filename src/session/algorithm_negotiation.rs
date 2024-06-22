@@ -247,7 +247,7 @@ impl Session<'_> {
         let kex_algorithm = server_algorithms
             .kex_algorithms
             .get(&kex_algorithm_name.as_str())
-            .ok_or(anyhow!("Could not find kex_algorithm"))?
+            .context("Could not find kex_algorithm")?
             .clone();
 
         let server_host_key_algorithm_name = self
@@ -259,7 +259,7 @@ impl Session<'_> {
         let server_host_key_algorithm = server_algorithms
             .server_host_key_algorithms
             .get(&server_host_key_algorithm_name.as_str())
-            .ok_or(anyhow!("Could not find server_host_key_algorithm"))?
+            .context("Could not find server_host_key_algorithm")?
             .clone();
 
         let encryption_algorithms_client_to_server_name = self
@@ -271,9 +271,7 @@ impl Session<'_> {
         let encryption_algorithms_client_to_server = server_algorithms
             .encryption_algorithms_client_to_server
             .get(&encryption_algorithms_client_to_server_name.as_str())
-            .ok_or(anyhow!(
-                "Could not find encryption_algorithms_client_to_server"
-            ))?
+            .context("Could not find encryption_algorithms_client_to_server")?
             .clone();
 
         let encryption_algorithms_server_to_client_name = self
@@ -285,9 +283,7 @@ impl Session<'_> {
         let encryption_algorithms_server_to_client = server_algorithms
             .encryption_algorithms_server_to_client
             .get(&encryption_algorithms_server_to_client_name.as_str())
-            .ok_or(anyhow!(
-                "Could not find encryption_algorithms_server_to_client"
-            ))?
+            .context("Could not find encryption_algorithms_server_to_client")?
             .clone();
 
         let mac_algorithms_client_to_server_name = self
@@ -299,7 +295,7 @@ impl Session<'_> {
         let mac_algorithms_client_to_server = server_algorithms
             .mac_algorithms_client_to_server
             .get(&mac_algorithms_client_to_server_name.as_str())
-            .ok_or(anyhow!("Could not find mac_algorithms_client_to_server"))?
+            .context("Could not find mac_algorithms_client_to_server")?
             .clone();
 
         let mac_algorithms_server_to_client_name = self
@@ -311,7 +307,7 @@ impl Session<'_> {
         let mac_algorithms_server_to_client = server_algorithms
             .mac_algorithms_server_to_client
             .get(&mac_algorithms_server_to_client_name.as_str())
-            .ok_or(anyhow!("Could not find mac_algorithms_server_to_client"))?
+            .context("Could not find mac_algorithms_server_to_client")?
             .clone();
 
         let compression_algorithms_client_to_server_name = self.negotiate_algorithm(
@@ -321,9 +317,7 @@ impl Session<'_> {
         let compression_algorithms_client_to_server = server_algorithms
             .compression_algorithms_client_to_server
             .get(&compression_algorithms_client_to_server_name.as_str())
-            .ok_or(anyhow!(
-                "Could not find compression_algorithms_server_to_client"
-            ))?;
+            .context("Could not find compression_algorithms_server_to_client")?;
 
         let compression_algorithms_server_to_client_name = self.negotiate_algorithm(
             &client_algorithms.compression_algorithms_server_to_client,
@@ -332,9 +326,7 @@ impl Session<'_> {
         let compression_algorithms_server_to_client = server_algorithms
             .compression_algorithms_server_to_client
             .get(&compression_algorithms_server_to_client_name.as_str())
-            .ok_or(anyhow!(
-                "Could not find compression_algorithms_server_to_client"
-            ))?;
+            .context("Could not find compression_algorithms_server_to_client")?;
 
         // let languages_client_to_server = Self::negotiate_algorithm(
         //     &client_algorithms.languages_client_to_server,
@@ -409,7 +401,7 @@ impl Session<'_> {
                 })
                 .unwrap();
 
-            Ok(preffered_algorithm.clone())
+            Ok(preffered_algorithm)
         }
     }
 }

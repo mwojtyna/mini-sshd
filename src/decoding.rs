@@ -4,7 +4,7 @@ use std::{
     net::TcpStream,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::{log_enabled, trace, Level};
 use num_traits::FromPrimitive;
 use openssl::{
@@ -92,7 +92,7 @@ impl PayloadReader {
     pub fn next_mpint(&mut self) -> Result<BigNum> {
         let mut bytes = self.next_string()?;
         if !bytes.is_empty() && (bytes[0] & 0x80) != 0 {
-            return Err(anyhow!("Negative numbers are not supported"));
+            bail!("Negative numbers are not supported");
         }
 
         if !bytes.is_empty() && bytes[0] == 0 {
@@ -115,7 +115,7 @@ pub struct DecodedPacket {
 impl DecodedPacket {
     pub fn message_type(&self) -> Result<MessageType> {
         if self.payload.is_empty() {
-            return Err(anyhow!("Payload is empty"));
+            bail!("Payload is empty");
         }
 
         let message_type = u8_to_MessageType(self.payload[0])?;
@@ -181,11 +181,11 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let packet_length_bytes = &first_block_dec[0..PACKET_LENGTH_SIZE];
     let packet_length = u8_array_to_u32(packet_length_bytes)?;
     if packet_length > MAX_PACKET_LENGTH {
-        return Err(anyhow!(
+        bail!(
             "Packet length {} exceeds maximum length {}",
             packet_length,
             MAX_PACKET_LENGTH
-        ));
+        );
     }
     trace!("packet_length = {}", packet_length);
 
@@ -218,7 +218,7 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
         &mac,
     )?;
     if !valid {
-        return Err(anyhow!("MAC verification failed"));
+        bail!("MAC verification failed");
     }
 
     trace!("packet = {:02x?}", packet_dec);
@@ -235,11 +235,11 @@ fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
         .context("Failed reading packet_length")?;
     let packet_length = u8_array_to_u32(&packet_length_bytes)?;
     if packet_length > MAX_PACKET_LENGTH {
-        return Err(anyhow!(
+        bail!(
             "Packet length {} exceeds maximum length {}",
             packet_length,
             MAX_PACKET_LENGTH
-        ));
+        );
     }
     trace!("packet_length = {} bytes", packet_length);
 
@@ -271,10 +271,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
 
     let bytes_left = packet_length - size_of::<u8>() as u32 - n1 - padding_length as u32;
     if bytes_left != 0 {
-        return Err(anyhow!(
-            "Didn't decode entire packet, {} bytes left",
-            bytes_left
-        ));
+        bail!("Didn't decode entire packet, {} bytes left", bytes_left);
     }
 
     Ok(payload)
@@ -325,10 +322,7 @@ pub fn decode_ec_signature(sig: &[u8]) -> Result<EcdsaSig> {
 
 pub fn u8_array_to_u32(array: &[u8]) -> Result<u32> {
     if array.len() != 4 {
-        return Err(anyhow!(
-            "Cannot convert u8 array of length {} to u32",
-            array.len()
-        ));
+        bail!("Cannot convert u8 array of length {} to u32", array.len());
     }
 
     Ok(u32::from_be_bytes([array[0], array[1], array[2], array[3]]))

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use openssl::{
     bn::{BigNum, BigNumContext},
     derive::Deriver,
@@ -96,7 +96,7 @@ impl Crypto {
                 .public_key()
                 .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)?;
 
-        let eph_pair = PKey::from_ec_key(eph_pair.clone())?;
+        let eph_pair = PKey::from_ec_key(eph_pair)?;
         let mut deriver = Deriver::new(&eph_pair)?;
         deriver.set_peer_ex(&peer_key, true)?;
 
@@ -148,7 +148,7 @@ impl Crypto {
     ) -> Result<bool> {
         let computed_mac = self.compute_mac(key, sequence_num, packet_unencrypted)?;
         if mac.len() != computed_mac.len() {
-            return Err(anyhow!("MAC lengths do not match"));
+            bail!("MAC lengths do not match");
         }
         Ok(openssl::memcmp::eq(&computed_mac, mac))
     }

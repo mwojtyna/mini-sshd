@@ -5,7 +5,7 @@ use std::{
 };
 
 use algorithm_negotiation::Algorithms;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use channel::Channel;
 use log::{debug, error, info, trace};
 
@@ -177,24 +177,18 @@ impl<'a> Session<'a> {
                     self.disconnect(
                         DisconnectReason::SSH_DISCONNECT_PROTOCOL_VERSION_NOT_SUPPORTED,
                     )?;
-                    return Err(anyhow!(
-                        "Unsupported protocol version of {:?}",
-                        proto_version
-                    ));
+                    bail!("Unsupported protocol version of {:?}", proto_version);
                 }
             } else {
                 self.disconnect(DisconnectReason::SSH_DISCONNECT_PROTOCOL_VERSION_NOT_SUPPORTED)?;
-                return Err(anyhow!(
-                    "Could not parse protocol version '{:?}'",
-                    proto_version_str
-                ));
+                bail!("Could not parse protocol version '{:?}'", proto_version_str);
             }
         } else {
             self.disconnect(DisconnectReason::SSH_DISCONNECT_PROTOCOL_VERSION_NOT_SUPPORTED)?;
-            return Err(anyhow!(
+            bail!(
                 "Could not find protocol version in client ident string of '{:?}'",
                 client_ident
-            ));
+            );
         }
 
         debug!("--- END IDENTIFICATION EXCHANGE ---");

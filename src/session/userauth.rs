@@ -1,6 +1,6 @@
 use core::mem::size_of;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Context, Result};
 use log::{debug, error, trace};
 
 use crate::{
@@ -64,7 +64,7 @@ impl<'a> Session<'a> {
         user_name: &str,
         service_name: &str,
     ) -> Result<()> {
-        let authenticate = reader.next_bool().ok_or(anyhow!("Invalid packet"))?;
+        let authenticate = reader.next_bool().context("Invalid packet")?;
 
         let public_key_alg_name = reader.next_string_utf8()?;
         debug!("public_key_algorithm_name = {}", public_key_alg_name);
