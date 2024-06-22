@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::read_to_string,
+    fs::{read_to_string, File},
     net::TcpListener,
     path::Path,
     sync::OnceLock,
@@ -12,7 +12,7 @@ use crypto::{Crypto, EcHostKey};
 use decoding::decode_ec_public_key;
 use dirs::home_dir;
 use indexmap::indexmap;
-use log::{debug, error, trace, warn};
+use log::{debug, error, info, trace, warn};
 use openssl::{base64, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
 use types::{
@@ -29,10 +29,7 @@ mod types;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// TODO: Config file
 pub const PORT: usize = 6969;
-const AUTHORIZED_KEYS_PATH: &str = ".ssh/authorized_keys";
-
 static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
 pub struct ServerConfig {
@@ -155,9 +152,18 @@ fn main() -> Result<()> {
 fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Vec<u8>>> {
     trace!("--- BEGIN AUTHORIZED_KEYS READ ---");
 
+    // TODO: Config file
+    const AUTHORIZED_KEYS_PATH: &str = ".ssh/authorized_keys";
+
     let home = home_dir().context("Failed to get home directory")?;
-    let path = Path::new(AUTHORIZED_KEYS_PATH);
-    let contents = read_to_string(home.join(path))?;
+    let path = home.join(Path::new(AUTHORIZED_KEYS_PATH));
+
+    if !path.exists() {
+        info!("'authorized_keys' file does not exist, creating...");
+        File::create_new(&path)?;
+    }
+
+    let contents = read_to_string(path)?;
     let split: Vec<&str> = contents.trim().split('\n').collect();
     let mut public_keys = HashSet::new();
 
