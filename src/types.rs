@@ -1,6 +1,8 @@
 use num_derive::FromPrimitive;
 use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
 
+use crate::def_enum;
+
 #[allow(non_camel_case_types)]
 #[derive(FromPrimitive, Debug, PartialEq, Clone, Copy)]
 pub enum MessageType {
@@ -75,34 +77,6 @@ pub enum DisconnectReason {
     SSH_DISCONNECT_AUTH_CANCELLED_BY_USER = 13,
     SSH_DISCONNECT_NO_MORE_AUTH_METHODS_AVAILABLE = 14,
     SSH_DISCONNECT_ILLEGAL_USER_NAME = 15,
-}
-
-#[macro_export]
-macro_rules! def_enum {
-    ($vis:vis $name:ident => $ty:ty {
-        $($variant:ident => $val:expr),+
-        $(,)?
-    }) => {
-        $vis struct $name;
-
-        impl $name {
-            $(
-                pub const $variant: $ty = $val;
-            )+
-
-            #[allow(dead_code)]
-            pub const VARIANTS: &'static [$ty] = &[$(Self::$variant),+];
-        }
-    };
-}
-
-#[macro_export]
-macro_rules! hashmap {
-    ($( $key: expr => $val: expr ),*) => {{
-         let mut map = ::std::collections::HashMap::new();
-         $( map.insert($key, $val); )*
-         map
-    }}
 }
 
 def_enum!(pub KexAlgorithm => &'static str {

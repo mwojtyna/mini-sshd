@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Context, Result};
-use log::{log_enabled, trace, Level};
+use log::trace;
 use num_traits::FromPrimitive;
 use openssl::{
     bn::{BigNum, BigNumContext},
@@ -17,6 +17,7 @@ use openssl::{
 
 use crate::{
     encoding::{encode_string, PACKET_LENGTH_SIZE, STRING_LENGTH_SIZE},
+    hex_dump,
     session::Session,
     types::MessageType,
 };
@@ -221,8 +222,6 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
         bail!("MAC verification failed");
     }
 
-    trace!("packet = {:02x?}", packet_dec);
-
     let payload = get_payload(packet_dec, packet_length)?;
     Ok(DecodedPacket { payload })
 }
@@ -261,10 +260,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
 
     let n1 = packet_length - (padding_length as u32) - 1;
     let payload: Vec<u8> = reader.take(n1 as usize).collect();
-
-    if log_enabled!(Level::Trace) {
-        trace!("payload = {:?}", String::from_utf8_lossy(&payload));
-    }
+    hex_dump!(payload);
 
     let random_padding = reader.take(padding_length as usize).collect::<Vec<u8>>();
     trace!("random_padding = {:02x?}", random_padding);

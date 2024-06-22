@@ -24,6 +24,7 @@ use types::{
 mod crypto;
 mod decoding;
 mod encoding;
+mod macros;
 mod session;
 mod types;
 
@@ -135,9 +136,9 @@ fn main() -> Result<()> {
         ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
         algorithms: algorithms.clone(),
         host_key: hashmap! {
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve).unwrap(),
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve).unwrap(),
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP521).unwrap().curve).unwrap()
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve)?,
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve)?,
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP521).unwrap().curve)?
         },
         authorized_keys,
     });
@@ -178,7 +179,7 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Ve
             trace!("public_key_b64_{}: {}", n, public_key_b64);
 
             let public_key_encoded = base64::decode_block(public_key_b64)?;
-            trace!("public_key_{}: {:02x?}", n, public_key_encoded);
+            hex_dump!(public_key_encoded);
 
             let (public_key_bytes, _) = decode_ec_public_key(&public_key_encoded, algo.curve)?;
             public_keys.insert(public_key_bytes);

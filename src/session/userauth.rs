@@ -8,6 +8,7 @@ use crate::{
     decoding::{decode_ec_public_key, decode_ec_signature, PayloadReader},
     def_enum,
     encoding::{encode_string, PacketBuilder, STRING_LENGTH_SIZE},
+    hex_dump,
     types::{HostKeyAlgorithm, MessageType},
 };
 
@@ -80,7 +81,7 @@ impl<'a> Session<'a> {
         }
 
         let public_key_blob = reader.next_string()?;
-        trace!("public_key_blob = {:02x?}", public_key_blob);
+        hex_dump!(public_key_blob);
 
         if !authenticate {
             let pk_ok = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_PK_OK, self)

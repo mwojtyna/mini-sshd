@@ -8,6 +8,7 @@ use algorithm_negotiation::Algorithms;
 use anyhow::{bail, Context, Result};
 use channel::Channel;
 use log::{debug, error, info, trace};
+use pretty_hex::pretty_hex;
 
 use crate::{
     crypto::Crypto,
@@ -269,9 +270,9 @@ impl<'a> Session<'a> {
 
             _ => {
                 error!(
-                    "Unhandled message type.\ntype: {:?}\npayload: {:?}",
+                    "Unhandled message type.\ntype: {:?}\npayload:\n{}",
                     msg_type,
-                    String::from_utf8_lossy(&packet.payload())
+                    pretty_hex(&packet.payload())
                 );
 
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED, self)

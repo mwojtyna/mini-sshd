@@ -238,77 +238,59 @@ impl Session<'_> {
             self.kex.ext_info_c = true;
         }
 
-        let kex_algorithm_name = self
-            .negotiate_algorithm(
-                &client_algorithms.kex_algorithms,
-                &server_algorithms.kex_algorithms,
-            )?
-            .clone();
+        let kex_algorithm_name = self.negotiate_algorithm(
+            &client_algorithms.kex_algorithms,
+            &server_algorithms.kex_algorithms,
+        )?;
         let kex_algorithm = server_algorithms
             .kex_algorithms
-            .get(&kex_algorithm_name.as_str())
-            .context("Could not find kex_algorithm")?
-            .clone();
+            .get(kex_algorithm_name.as_str())
+            .context("Could not find kex_algorithm")?;
 
-        let server_host_key_algorithm_name = self
-            .negotiate_algorithm(
-                &client_algorithms.server_host_key_algorithms,
-                &server_algorithms.server_host_key_algorithms,
-            )?
-            .clone();
+        let server_host_key_algorithm_name = self.negotiate_algorithm(
+            &client_algorithms.server_host_key_algorithms,
+            &server_algorithms.server_host_key_algorithms,
+        )?;
         let server_host_key_algorithm = server_algorithms
             .server_host_key_algorithms
-            .get(&server_host_key_algorithm_name.as_str())
-            .context("Could not find server_host_key_algorithm")?
-            .clone();
+            .get(server_host_key_algorithm_name.as_str())
+            .context("Could not find server_host_key_algorithm")?;
 
-        let encryption_algorithms_client_to_server_name = self
-            .negotiate_algorithm(
-                &client_algorithms.encryption_algorithms_client_to_server,
-                &server_algorithms.encryption_algorithms_client_to_server,
-            )?
-            .clone();
+        let encryption_algorithms_client_to_server_name = self.negotiate_algorithm(
+            &client_algorithms.encryption_algorithms_client_to_server,
+            &server_algorithms.encryption_algorithms_client_to_server,
+        )?;
         let encryption_algorithms_client_to_server = server_algorithms
             .encryption_algorithms_client_to_server
-            .get(&encryption_algorithms_client_to_server_name.as_str())
-            .context("Could not find encryption_algorithms_client_to_server")?
-            .clone();
+            .get(encryption_algorithms_client_to_server_name.as_str())
+            .context("Could not find encryption_algorithms_client_to_server")?;
 
-        let encryption_algorithms_server_to_client_name = self
-            .negotiate_algorithm(
-                &client_algorithms.encryption_algorithms_server_to_client,
-                &server_algorithms.encryption_algorithms_server_to_client,
-            )?
-            .clone();
+        let encryption_algorithms_server_to_client_name = self.negotiate_algorithm(
+            &client_algorithms.encryption_algorithms_server_to_client,
+            &server_algorithms.encryption_algorithms_server_to_client,
+        )?;
         let encryption_algorithms_server_to_client = server_algorithms
             .encryption_algorithms_server_to_client
-            .get(&encryption_algorithms_server_to_client_name.as_str())
-            .context("Could not find encryption_algorithms_server_to_client")?
-            .clone();
+            .get(encryption_algorithms_server_to_client_name.as_str())
+            .context("Could not find encryption_algorithms_server_to_client")?;
 
-        let mac_algorithms_client_to_server_name = self
-            .negotiate_algorithm(
-                &client_algorithms.mac_algorithms_client_to_server,
-                &server_algorithms.mac_algorithms_client_to_server,
-            )?
-            .clone();
+        let mac_algorithms_client_to_server_name = self.negotiate_algorithm(
+            &client_algorithms.mac_algorithms_client_to_server,
+            &server_algorithms.mac_algorithms_client_to_server,
+        )?;
         let mac_algorithms_client_to_server = server_algorithms
             .mac_algorithms_client_to_server
-            .get(&mac_algorithms_client_to_server_name.as_str())
-            .context("Could not find mac_algorithms_client_to_server")?
-            .clone();
+            .get(mac_algorithms_client_to_server_name.as_str())
+            .context("Could not find mac_algorithms_client_to_server")?;
 
-        let mac_algorithms_server_to_client_name = self
-            .negotiate_algorithm(
-                &client_algorithms.mac_algorithms_server_to_client,
-                &server_algorithms.mac_algorithms_server_to_client,
-            )?
-            .clone();
+        let mac_algorithms_server_to_client_name = self.negotiate_algorithm(
+            &client_algorithms.mac_algorithms_server_to_client,
+            &server_algorithms.mac_algorithms_server_to_client,
+        )?;
         let mac_algorithms_server_to_client = server_algorithms
             .mac_algorithms_server_to_client
-            .get(&mac_algorithms_server_to_client_name.as_str())
-            .context("Could not find mac_algorithms_server_to_client")?
-            .clone();
+            .get(mac_algorithms_server_to_client_name.as_str())
+            .context("Could not find mac_algorithms_server_to_client")?;
 
         let compression_algorithms_client_to_server_name = self.negotiate_algorithm(
             &client_algorithms.compression_algorithms_client_to_server,
@@ -316,7 +298,7 @@ impl Session<'_> {
         )?;
         let compression_algorithms_client_to_server = server_algorithms
             .compression_algorithms_client_to_server
-            .get(&compression_algorithms_client_to_server_name.as_str())
+            .get(compression_algorithms_client_to_server_name.as_str())
             .context("Could not find compression_algorithms_server_to_client")?;
 
         let compression_algorithms_server_to_client_name = self.negotiate_algorithm(
@@ -325,46 +307,37 @@ impl Session<'_> {
         )?;
         let compression_algorithms_server_to_client = server_algorithms
             .compression_algorithms_server_to_client
-            .get(&compression_algorithms_server_to_client_name.as_str())
+            .get(compression_algorithms_server_to_client_name.as_str())
             .context("Could not find compression_algorithms_server_to_client")?;
 
-        // let languages_client_to_server = Self::negotiate_algorithm(
-        //     &client_algorithms.languages_client_to_server,
-        //     server_algorithms.languages_client_to_server,
-        // )?;
-        // let languages_server_to_client = Self::negotiate_algorithm(
-        //     &client_algorithms.languages_server_to_client,
-        //     server_algorithms.languages_server_to_client,
-        // )?;
-
         Ok(Algorithms {
-            kex_algorithm: Algorithm::new(kex_algorithm_name, kex_algorithm),
+            kex_algorithm: Algorithm::new(kex_algorithm_name, kex_algorithm.clone()),
             server_host_key_algorithm: Algorithm::new(
                 server_host_key_algorithm_name,
-                server_host_key_algorithm,
+                server_host_key_algorithm.clone(),
             ),
             encryption_algorithms_client_to_server: Algorithm::new(
                 encryption_algorithms_client_to_server_name,
-                encryption_algorithms_client_to_server,
+                encryption_algorithms_client_to_server.clone(),
             ),
             encryption_algorithms_server_to_client: Algorithm::new(
                 encryption_algorithms_server_to_client_name,
-                encryption_algorithms_server_to_client,
+                encryption_algorithms_server_to_client.clone(),
             ),
             mac_algorithms_client_to_server: Algorithm::new(
                 mac_algorithms_client_to_server_name,
-                mac_algorithms_client_to_server,
+                mac_algorithms_client_to_server.clone(),
             ),
             mac_algorithms_server_to_client: Algorithm::new(
                 mac_algorithms_server_to_client_name,
-                mac_algorithms_server_to_client,
+                mac_algorithms_server_to_client.clone(),
             ),
             compression_algorithms_client_to_server: Algorithm::new(
-                compression_algorithms_client_to_server_name.clone(),
+                compression_algorithms_client_to_server_name,
                 compression_algorithms_client_to_server.clone(),
             ),
             compression_algorithms_server_to_client: Algorithm::new(
-                compression_algorithms_server_to_client_name.clone(),
+                compression_algorithms_server_to_client_name,
                 compression_algorithms_server_to_client.clone(),
             ),
             languages_client_to_server: "".to_string(),

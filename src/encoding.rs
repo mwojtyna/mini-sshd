@@ -1,12 +1,13 @@
 use std::mem::size_of;
 
 use anyhow::Result;
-use log::{debug, log_enabled, trace, Level};
+use log::{debug, trace};
 use num_traits::FromPrimitive;
 use openssl::{bn::BigNumRef, ecdsa::EcdsaSigRef};
 
 use crate::{
     crypto::Crypto,
+    hex_dump,
     session::{algorithm_negotiation::Algorithm, Session},
     types::{HostKeyAlgorithmDetails, MessageType},
 };
@@ -65,9 +66,7 @@ impl<'a> PacketBuilder<'a> {
 
         trace!("packet_length = {} bytes", packet_length);
         trace!("padding_length = {} bytes", padding_length);
-        if log_enabled!(Level::Trace) {
-            trace!("payload = {:?}", String::from_utf8_lossy(&self.payload));
-        }
+        hex_dump!(self.payload);
         trace!("random_padding = {:02x?}", random_padding);
 
         let mut packet = Vec::<u8>::with_capacity(
@@ -189,7 +188,7 @@ pub fn encode_name_list(names: &[&str]) -> Vec<u8> {
     let mut name_list = Vec::<u8>::new();
     name_list.extend_from_slice(&encode_u32(payload.len() as u32));
     name_list.extend_from_slice(payload);
-    trace!("name_list = {:02x?}", name_list);
+    hex_dump!(name_list);
 
     trace!("-- END NAME-LIST ENCODING --");
     name_list
