@@ -255,7 +255,7 @@ fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
     let mut reader = packet.into_iter();
     let reader = reader.by_ref();
 
-    let padding_length = *reader.take(1).collect::<Vec<u8>>().first().unwrap();
+    let padding_length = reader.next().context("Could not read padding_length")?;
     trace!("padding_length = {} bytes", padding_length);
 
     let n1 = packet_length - (padding_length as u32) - 1;
