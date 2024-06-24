@@ -6,13 +6,13 @@ use std::{
 
 use algorithm_negotiation::Algorithms;
 use anyhow::{bail, Context, Result};
-use channel::Channel;
 use enum_iterator::all;
 use log::{debug, error, info, trace};
 use packet_handlers::{PacketHandlerArgs, PacketHandlerFn};
 use pretty_hex::pretty_hex;
 
 use crate::{
+    channel::Channel,
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::PacketBuilder,

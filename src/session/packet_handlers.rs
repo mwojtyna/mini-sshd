@@ -31,11 +31,11 @@ pub const disconnect: PacketHandlerFn =
 pub const ignore: PacketHandlerFn = |_, _| Ok(None);
 
 pub const unimplemented: PacketHandlerFn = |_, mut args| {
-    let sequence_nr = args.reader.next_u32()?;
+    let sequence_num = args.reader.next_u32()?;
     warn!(
-        "Client responded with '{:?}' for packet sent with sequence nr = {}",
+        "Client responded with '{:?}' for packet sent with sequence num = {}",
         MessageType::SSH_MSG_UNIMPLEMENTED,
-        sequence_nr
+        sequence_num
     );
     Ok(None)
 };

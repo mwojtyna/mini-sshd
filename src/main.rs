@@ -21,6 +21,7 @@ use types::{
     KexAlgorithmDetails,
 };
 
+mod channel;
 mod crypto;
 mod decoding;
 mod encoding;

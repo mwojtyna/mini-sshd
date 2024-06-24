@@ -1,7 +1,7 @@
 use core::mem::size_of;
 
 use anyhow::{Context, Result};
-use log::{debug, error, trace};
+use log::{debug, trace};
 
 use crate::{
     crypto::Crypto,
@@ -21,10 +21,18 @@ const BANNER: &str = r"######################################
 ######################################
 ";
 
+macro_rules! reject_with_err {
+    ($session:expr, $partial_success:expr, $error_msg:expr) => {
+        log::error!("{}", $error_msg);
+        reject($session, $partial_success)?;
+        return Ok(());
+    };
+}
+
 def_enum!(pub AuthenticationMethod => &'static str {
     PUBLIC_KEY => "publickey",
-    PASSWORD => "password",
-    HOSTBASED => "hostbased",
+    // PASSWORD => "password",
+    // HOSTBASED => "hostbased",
     NONE => "none",
 });
 
@@ -71,13 +79,11 @@ impl<'session_impl> Session<'session_impl> {
         debug!("public_key_algorithm_name = {}", public_key_alg_name);
 
         if !HostKeyAlgorithm::VARIANTS.contains(&public_key_alg_name.as_str()) {
-            // Not returning error here, because we want to send a rejection packet
-            reject_with_err(
+            reject_with_err!(
                 self,
                 false,
-                format!("Unsupported public key algorithm '{}'", public_key_alg_name).as_str(),
-            )?;
-            return Ok(());
+                format!("Unsupported public key algorithm '{}'", public_key_alg_name).as_str()
+            );
         }
 
         let public_key_blob = reader.next_string()?;
@@ -110,8 +116,7 @@ impl<'session_impl> Session<'session_impl> {
                 .authorized_keys
                 .contains(&public_key_bytes)
             {
-                reject_with_err(self, false, "Public key not in 'authorized_keys' file")?;
-                return Ok(());
+                reject_with_err!(self, false, "Public key not in 'authorized_keys' file");
             }
 
             let digest_data = self.concat_digest_data(
@@ -124,9 +129,7 @@ impl<'session_impl> Session<'session_impl> {
 
             let valid = signature.verify(&digest, &public_key)?;
             if !valid {
-                // Not returning error here, because we want to send a rejection packet
-                reject_with_err(self, false, "Signature not valid")?;
-                return Ok(());
+                reject_with_err!(self, false, "Signature not valid");
             }
 
             let banner_packet = PacketBuilder::new(MessageType::SSH_MSG_USERAUTH_BANNER, self)
@@ -185,10 +188,5 @@ fn reject(session: &mut Session, partial_success: bool) -> Result<()> {
         .build()?;
     session.send_packet(&packet)?;
 
-    Ok(())
-}
-fn reject_with_err(session: &mut Session, partial_success: bool, error_msg: &str) -> Result<()> {
-    error!("{}", error_msg);
-    reject(session, partial_success)?;
     Ok(())
 }

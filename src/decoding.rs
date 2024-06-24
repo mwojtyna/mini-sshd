@@ -66,9 +66,13 @@ impl PayloadReader {
         String::from_utf8(bytes).context("Failed to decode string bytes to UTF-8")
     }
 
-    pub fn next_byte(&mut self) -> Option<u8> {
-        let byte = self.iter.by_ref().next()?;
-        Some(byte)
+    pub fn next_byte(&mut self) -> Result<u8> {
+        let byte = self
+            .iter
+            .next()
+            .context("Failed to read next byte, packet too short")?;
+
+        Ok(byte)
     }
 
     pub fn next_n_bytes(&mut self, n: usize) -> Vec<u8> {
@@ -81,12 +85,12 @@ impl PayloadReader {
         u8_array_to_u32(&bytes)
     }
 
-    pub fn next_bool(&mut self) -> Option<bool> {
+    pub fn next_bool(&mut self) -> Result<bool> {
         let byte = self.next_byte()?;
         if byte == 0 {
-            Some(false)
+            Ok(false)
         } else {
-            Some(true)
+            Ok(true)
         }
     }
 
@@ -335,11 +339,4 @@ pub fn u8_to_bool(value: u8) -> Result<bool> {
 #[allow(non_snake_case)]
 pub fn u8_to_MessageType(value: u8) -> Result<MessageType> {
     MessageType::from_u8(value).context(format!("Failed to cast {} into MessageType", value))
-}
-
-pub fn packet_too_short<T>(var_name: &str) -> Result<T> {
-    Err(anyhow!(
-        "Packet too short - '{}' could not be read",
-        var_name
-    ))
 }

@@ -6,7 +6,7 @@ use log::{debug, trace};
 
 use crate::{
     crypto::Crypto,
-    decoding::{packet_too_short, u8_to_bool, DecodedPacket, PayloadReader},
+    decoding::{DecodedPacket, PayloadReader},
     encoding::PacketBuilder,
     session::Session,
     types::{
@@ -206,13 +206,8 @@ impl Session<'_> {
         let compression_algorithms_server_to_client = reader.next_name_list()?;
         let languages_client_to_server = reader.next_name_list()?;
         let languages_server_to_client = reader.next_name_list()?;
-
-        if let Some(first_kex_packet_follows_u8) = reader.next_byte() {
-            let first_kex_packet_follows = u8_to_bool(first_kex_packet_follows_u8)?;
-            debug!("first_kex_packet_follows = {}", first_kex_packet_follows);
-        } else {
-            return packet_too_short("first_kex_packet_follows");
-        }
+        let first_kex_packet_follows = reader.next_bool()?;
+        debug!("first_kex_packet_follows = {}", first_kex_packet_follows);
 
         let _reserved = reader.next_n_bytes(4);
 
