@@ -9,7 +9,7 @@ use crate::{crypto::Crypto, encoding::encode_mpint};
 
 use super::Session;
 
-impl<'a> Session<'a> {
+impl<'session_impl> Session<'session_impl> {
     pub fn compute_secrets(&mut self, k: BigNum, h: Vec<u8>) -> Result<()> {
         let k = encode_mpint(&k);
         let k = k.as_slice();

@@ -1,10 +1,11 @@
+use enum_iterator::Sequence;
 use num_derive::FromPrimitive;
 use openssl::{hash::MessageDigest, nid::Nid, symm::Cipher};
 
 use crate::def_enum;
 
 #[allow(non_camel_case_types)]
-#[derive(FromPrimitive, Debug, PartialEq, Clone, Copy)]
+#[derive(FromPrimitive, Debug, PartialEq, Clone, Copy, Sequence, Hash, Eq)]
 pub enum MessageType {
     // Transport layer protocol:
     // 1 to 19 - Transport layer generic (e.g., disconnect, ignore, debug, etc.)

@@ -7,14 +7,16 @@ use std::{
 use algorithm_negotiation::Algorithms;
 use anyhow::{bail, Context, Result};
 use channel::Channel;
+use enum_iterator::all;
 use log::{debug, error, info, trace};
+use packet_handlers::{PacketHandlerArgs, PacketHandlerFn};
 use pretty_hex::pretty_hex;
 
 use crate::{
     crypto::Crypto,
     decoding::{decode_packet, PayloadReader},
     encoding::PacketBuilder,
-    types::{DisconnectReason, HostKeyAlgorithm, MessageType, ServiceName},
+    types::{DisconnectReason, MessageType},
     ServerConfig,
 };
 
@@ -22,17 +24,20 @@ pub mod algorithm_negotiation;
 pub mod channel;
 pub mod compute_secrets;
 pub mod key_exchange;
+#[allow(non_upper_case_globals)]
+pub mod packet_handlers;
 pub mod userauth;
 
-pub struct Session<'a> {
+pub struct Session<'session> {
     stream: TcpStream,
     server_sequence_number: u32,
     client_sequence_number: u32,
 
-    server_config: &'a ServerConfig,
+    server_config: &'session ServerConfig,
     algorithms: Option<Algorithms>,
     crypto: Option<Crypto>,
 
+    packet_handlers: HashMap<MessageType, PacketHandlerFn>,
     kex: KeyExchange,
     channels: HashMap<u32, Channel>,
 
@@ -55,8 +60,20 @@ pub struct KeyExchange {
     pub ext_info_c: bool,
 }
 
-impl<'a> Session<'a> {
-    pub fn new(stream: TcpStream, server_config: &'a ServerConfig) -> Self {
+impl<'session_impl> Session<'session_impl> {
+    pub fn new(stream: TcpStream, server_config: &'session_impl ServerConfig) -> Self {
+        let iter = all::<MessageType>()
+            .map::<(MessageType, PacketHandlerFn), _>(|t| (t, packet_handlers::not_set));
+
+        let mut packet_handlers: HashMap<MessageType, PacketHandlerFn> = HashMap::from_iter(iter);
+        packet_handlers.insert(MessageType::SSH_MSG_DISCONNECT, packet_handlers::disconnect);
+        packet_handlers.insert(MessageType::SSH_MSG_IGNORE, packet_handlers::ignore);
+        packet_handlers.insert(
+            MessageType::SSH_MSG_UNIMPLEMENTED,
+            packet_handlers::unimplemented,
+        );
+        packet_handlers.insert(MessageType::SSH_MSG_DEBUG, packet_handlers::ignore);
+
         Session {
             stream,
             server_sequence_number: 0,
@@ -66,6 +83,7 @@ impl<'a> Session<'a> {
             algorithms: None,
             crypto: None,
 
+            packet_handlers,
             kex: KeyExchange::default(),
             channels: HashMap::new(),
 
@@ -80,7 +98,7 @@ impl<'a> Session<'a> {
     }
 
     /// This will handle all incoming packets, blocking this thread until disconnect.
-    pub fn start(&mut self) -> Result<()> {
+    pub fn start(&'session_impl mut self) -> Result<()> {
         info!(
             "Created new session for client on address {}",
             self.stream.peer_addr().unwrap()
@@ -89,6 +107,11 @@ impl<'a> Session<'a> {
         self.kex.client_ident = self
             .ident_exchange()
             .context("Failed during ident exchange")?;
+
+        self.set_packet_handler(
+            MessageType::SSH_MSG_KEXINIT,
+            packet_handlers::algorithm_negotiation,
+        );
 
         loop {
             let disconnect = self.handle_packet().context("Failed handling packet")?;
@@ -156,9 +179,14 @@ impl<'a> Session<'a> {
         &self.integrity_key_client_server
     }
 
+    pub fn set_packet_handler(&mut self, msg_type: MessageType, handler: PacketHandlerFn) {
+        self.packet_handlers.insert(msg_type, handler);
+    }
+
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self) -> Result<String> {
         debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
+
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
         self.server_sequence_number = 0; // Sequence number doesn't increment for ident exchange
 
@@ -196,7 +224,6 @@ impl<'a> Session<'a> {
         Ok(client_ident)
     }
 
-    // TODO: Handle packets like `ssh_dispatch_set` from openssh
     fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
         let packet = decode_packet(self)?;
         let msg_type = packet.message_type()?;
@@ -205,81 +232,27 @@ impl<'a> Session<'a> {
             msg_type, self.server_sequence_number(), self.client_sequence_number()
         );
 
-        let mut reader = PayloadReader::new(packet.payload());
+        let reader = PayloadReader::new(packet.payload());
+        let handler: Option<PacketHandlerFn> = self.packet_handlers.get(&msg_type).copied();
 
-        match msg_type {
-            MessageType::SSH_MSG_DISCONNECT => {
-                return Ok(Some(DisconnectReason::SSH_DISCONNECT_BY_APPLICATION))
-            }
-            MessageType::SSH_MSG_IGNORE => { /* RFC 4253 § 11.2 - Must be ignored */ }
-            MessageType::SSH_MSG_UNIMPLEMENTED => { /* RFC 4253 § 11.4 - Must be ignored */ }
-            MessageType::SSH_MSG_DEBUG => { /* RFC 4253 § 11.3 - May be ignored */ }
-            MessageType::SSH_MSG_SERVICE_REQUEST => {
-                // RFC 4253 § 10
-                debug!("--- BEGIN SERVICE REQUEST ---");
+        if let Some(handler) = handler {
+            let args = PacketHandlerArgs {
+                reader,
+                msg_type,
+                packet,
+            };
+            handler(self, args)?;
+        } else {
+            error!(
+                "Unhandled message type.\ntype: {:?}\npayload:\n{}",
+                msg_type,
+                pretty_hex(&packet.payload())
+            );
 
-                let service_name = reader.next_string_utf8()?;
-                debug!("service_name = {}", service_name);
-
-                if service_name == ServiceName::SSH_USERAUTH {
-                    let packet = PacketBuilder::new(MessageType::SSH_MSG_SERVICE_ACCEPT, self)
-                        .write_string(service_name.as_bytes())
-                        .build()?;
-                    self.send_packet(&packet)?;
-                } else {
-                    return Ok(Some(DisconnectReason::SSH_DISCONNECT_SERVICE_NOT_AVAILABLE));
-                }
-
-                debug!("--- END SERVICE REQUEST ---");
-            }
-            MessageType::SSH_MSG_KEXINIT => {
-                let algorithms = self
-                    .algorithm_negotiation(&packet, &mut reader)
-                    .context("Failed during handling SSH_MSG_KEXINIT")?;
-
-                self.algorithms = Some(algorithms.clone());
-                self.crypto = Some(Crypto::new(algorithms));
-            }
-            MessageType::SSH_MSG_NEWKEYS => {
-                let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, self).build()?;
-                self.send_packet(&packet)?;
-                self.kex.finished = true;
-
-                // RFC 8308 § 2.3, 2.4
-                // Advertise extensions
-                if self.kex().ext_info_c {
-                    let packet = PacketBuilder::new(MessageType::SSH_MSG_EXT_INFO, self)
-                        .write_u32(1)
-                        .write_string(b"server-sig-algs")
-                        .write_name_list(HostKeyAlgorithm::VARIANTS)
-                        .build()?;
-                    self.send_packet(&packet)?;
-                }
-            }
-
-            MessageType::SSH_MSG_KEX_ECDH_INIT => {
-                let (k, h) = self.key_exchange(&mut reader)?;
-                self.compute_secrets(k, h)?;
-            }
-
-            MessageType::SSH_MSG_USERAUTH_REQUEST => {
-                self.userauth(&mut reader)?;
-            }
-
-            MessageType::SSH_MSG_CHANNEL_OPEN => self.open_channel(&mut reader)?,
-
-            _ => {
-                error!(
-                    "Unhandled message type.\ntype: {:?}\npayload:\n{}",
-                    msg_type,
-                    pretty_hex(&packet.payload())
-                );
-
-                let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED, self)
-                    .write_u32(self.server_sequence_number())
-                    .build()?;
-                self.send_packet(&packet)?;
-            }
+            let packet = PacketBuilder::new(MessageType::SSH_MSG_UNIMPLEMENTED, self)
+                .write_u32(self.server_sequence_number())
+                .build()?;
+            self.send_packet(&packet)?;
         }
 
         Ok(None)

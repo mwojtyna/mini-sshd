@@ -19,14 +19,17 @@ pub const STRING_LENGTH_SIZE: usize = size_of::<u32>();
 const MIN_PADDING: u8 = 4;
 const BLOCK_SIZE_NON_ENCRYPTED: usize = 8;
 
-pub struct PacketBuilder<'a> {
+pub struct PacketBuilder<'packet_builder> {
     payload: Vec<u8>,
-    session: &'a Session<'a>,
+    session: &'packet_builder Session<'packet_builder>,
 }
 
 #[allow(dead_code)]
-impl<'a> PacketBuilder<'a> {
-    pub fn new(message_type: MessageType, session: &'a Session<'a>) -> Self {
+impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
+    pub fn new(
+        message_type: MessageType,
+        session: &'packet_builder_impl Session<'packet_builder_impl>,
+    ) -> Self {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,

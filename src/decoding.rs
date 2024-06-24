@@ -63,7 +63,7 @@ impl PayloadReader {
 
     pub fn next_string_utf8(&mut self) -> Result<String> {
         let bytes = self.next_string()?;
-        Ok(String::from_utf8(bytes)?)
+        String::from_utf8(bytes).context("Failed to decode string bytes to UTF-8")
     }
 
     pub fn next_byte(&mut self) -> Option<u8> {

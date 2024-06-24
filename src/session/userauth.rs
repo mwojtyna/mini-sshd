@@ -28,7 +28,7 @@ def_enum!(pub AuthenticationMethod => &'static str {
     NONE => "none",
 });
 
-impl<'a> Session<'a> {
+impl<'session_impl> Session<'session_impl> {
     // RFC 4252
     pub fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN USERAUTH REQUEST ---");

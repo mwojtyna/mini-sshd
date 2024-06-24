@@ -29,8 +29,8 @@ mod session;
 mod types;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-
 pub const PORT: usize = 6969;
+
 static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
 pub struct ServerConfig {

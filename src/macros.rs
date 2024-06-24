@@ -30,8 +30,11 @@ macro_rules! hashmap {
 macro_rules! hex_dump {
     ($value:expr) => {
         if log::log_enabled!(log::Level::Trace) {
-            let name = stringify!($value).split('.').last().unwrap();
-            trace!("{}: \n{}", name, pretty_hex::pretty_hex(&$value));
+            log::trace!(
+                "{}: \n{}",
+                stringify!($value),
+                pretty_hex::pretty_hex(&$value)
+            );
         }
     };
 }

@@ -21,7 +21,7 @@ def_enum!(pub ChannelType => &'static str {
     SUBSYSTEM => "subsystem"
 });
 
-#[allow(non_camel_case_types)]
+#[allow(non_camel_case_types, dead_code)]
 pub enum ChannelOpenFailureReason {
     SSH_OPEN_ADMINISTRATIVELY_PROHIBITED = 1,
     SSH_OPEN_CONNECT_FAILED = 2,
@@ -29,7 +29,7 @@ pub enum ChannelOpenFailureReason {
     SSH_OPEN_RESOURCE_SHORTAGE = 4,
 }
 
-impl<'a> Session<'a> {
+impl<'session_impl> Session<'session_impl> {
     // RFC 4254 § 5.1
     pub fn open_channel(&mut self, reader: &mut PayloadReader) -> Result<()> {
         let chan_type = reader.next_string_utf8()?;
@@ -72,6 +72,10 @@ impl<'a> Session<'a> {
             .build()?;
         self.send_packet(&packet)?;
 
+        Ok(())
+    }
+
+    pub fn channel_request(&mut self, reader: &mut PayloadReader) -> Result<()> {
         Ok(())
     }
 }

@@ -7,6 +7,7 @@ use crate::{
     encoding::{
         encode_ec_public_key, encode_ec_signature, encode_mpint, encode_string, PacketBuilder,
     },
+    hex_dump,
     types::MessageType,
     Session,
 };
@@ -81,6 +82,15 @@ fn concat_hash_data(
     q_s: &[u8],
     k: &BigNum,
 ) -> Result<Vec<u8>> {
+    hex_dump!(&v_c);
+    hex_dump!(&v_s);
+    hex_dump!(&i_c);
+    hex_dump!(&i_s);
+    hex_dump!(&k_s);
+    hex_dump!(&q_c);
+    hex_dump!(&q_s);
+    hex_dump!(&k.to_vec());
+
     let v_c = encode_string(v_c);
     let v_s = encode_string(v_s);
     let i_c = encode_string(i_c);

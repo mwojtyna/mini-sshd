@@ -1,7 +1,7 @@
-use std::{collections::HashSet, fmt::Debug};
+use std::fmt::Debug;
 
 use anyhow::{anyhow, Context, Result};
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
 
 use crate::{
@@ -112,7 +112,7 @@ impl Session<'_> {
         &mut self,
         packet: &DecodedPacket,
         reader: &mut PayloadReader,
-    ) -> Result<Algorithms> {
+    ) -> Result<()> {
         debug!("--- BEGIN ALGORITHM NEGOTIATION ---");
         packet
             .payload_with_msg_type()
@@ -127,7 +127,7 @@ impl Session<'_> {
             Self::decode_client_algorithms(reader).context("Failed reading client algorithms")?;
 
         let (server_algorithms_payload, server_algorithms_packet) =
-            self.encode_server_algorithms(&self.server_config.algorithms)?;
+            self.encode_server_algorithms()?;
 
         server_algorithms_payload.clone_into(&mut self.kex.server_kexinit_payload);
 
@@ -140,17 +140,21 @@ impl Session<'_> {
             self.negotiate_algorithms(&client_algorithms, &self.server_config.algorithms)?;
         debug!("negotiated_algorithms = {:#?}", negotiated);
 
+        self.algorithms = Some(negotiated.clone());
+        self.crypto = Some(Crypto::new(negotiated));
+
         debug!("--- END ALGORITHM NEGOTIATION ---");
-        Ok(negotiated)
+        Ok(())
     }
 
     fn algos_to_names<V>(algo: &AlgorithmsCollection<V>) -> Vec<&str> {
         algo.keys().copied().collect()
     }
-    fn encode_server_algorithms(
-        &self,
-        algorithms: &ServerAlgorithms,
-    ) -> Result<(Vec<u8>, Vec<u8>)> {
+    fn encode_server_algorithms(&self) -> Result<(Vec<u8>, Vec<u8>)> {
+        trace!("--- BEGIN SERVER ALGORITHMS ENCODING ---");
+
+        let algorithms = &self.server_config.algorithms;
+
         let cookie = Crypto::generate_random_array(16)?;
         let first_kex_packet_follows = false;
         let reserved = vec![0; 4];
@@ -185,10 +189,13 @@ impl Session<'_> {
             .write_bytes(&reserved)
             .build_get_payload()?;
 
+        trace!("--- END SERVER ALGORITHMS ENCODING ---");
         Ok(payload_packet)
     }
 
     fn decode_client_algorithms(reader: &mut PayloadReader) -> Result<ClientAlgorithms> {
+        trace!("--- BEGIN CLIENT ALGORITHMS DECODING ---");
+
         let kex_algorithms = reader.next_name_list()?;
         let server_host_key_algorithms = reader.next_name_list()?;
         let encryption_algorithms_client_to_server = reader.next_name_list()?;
@@ -223,6 +230,7 @@ impl Session<'_> {
         };
         debug!("client_algorithms = {:#?}", client_algorithms);
 
+        trace!("--- END CLIENT ALGORITHMS DECODING ---");
         Ok(client_algorithms)
     }
 
@@ -231,6 +239,8 @@ impl Session<'_> {
         client_algorithms: &ClientAlgorithms,
         server_algorithms: &ServerAlgorithms,
     ) -> Result<Algorithms> {
+        trace!("--- BEGIN ALGORITHM NEGOTIATION ---");
+
         if client_algorithms
             .kex_algorithms
             .contains(&KexAlgorithm::EXT_INFO_C.to_owned())
@@ -310,6 +320,7 @@ impl Session<'_> {
             .get(compression_algorithms_server_to_client_name.as_str())
             .context("Could not find compression_algorithms_server_to_client")?;
 
+        trace!("--- END ALGORITHM NEGOTIATION ---");
         Ok(Algorithms {
             kex_algorithm: Algorithm::new(kex_algorithm_name, kex_algorithm.clone()),
             server_host_key_algorithm: Algorithm::new(
@@ -351,11 +362,15 @@ impl Session<'_> {
         client_algorithms: &[String],
         server_algorithms: &AlgorithmsCollection<V>,
     ) -> Result<String> {
-        let client_set: HashSet<String> = HashSet::from_iter(client_algorithms.iter().cloned());
-        let server_set: HashSet<String> =
-            HashSet::from_iter(server_algorithms.keys().cloned().map(|k| k.to_owned()));
+        let client_set: IndexSet<String> = IndexSet::from_iter(client_algorithms.iter().cloned());
+        trace!("client_set = {:#?}", client_set);
 
-        let intersection: HashSet<String> = client_set.intersection(&server_set).cloned().collect();
+        let server_set: IndexSet<String> =
+            IndexSet::from_iter(server_algorithms.keys().map(|s| s.to_string()));
+        trace!("server_set = {:#?}", server_set);
+
+        let intersection: IndexSet<&String> = client_set.intersection(&server_set).collect();
+        trace!("intersection = {:#?}", intersection);
 
         if intersection.is_empty() {
             Err(anyhow!(
@@ -364,17 +379,10 @@ impl Session<'_> {
                 server_algorithms.keys(),
             ))
         } else {
-            let preffered_algorithm = intersection
-                .into_iter()
-                .min_by_key(|intersection_algo| {
-                    client_algorithms
-                        .iter()
-                        .position(|server_algo| server_algo == intersection_algo)
-                        .unwrap()
-                })
-                .unwrap();
+            let preffered_algorithm = intersection.into_iter().next().unwrap();
+            trace!("preffered_algorithm = {:#?}", preffered_algorithm);
 
-            Ok(preffered_algorithm)
+            Ok(preffered_algorithm.to_string())
         }
     }
 }
