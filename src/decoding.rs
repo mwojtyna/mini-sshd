@@ -87,11 +87,8 @@ impl PayloadReader {
 
     pub fn next_bool(&mut self) -> Result<bool> {
         let byte = self.next_byte()?;
-        if byte == 0 {
-            Ok(false)
-        } else {
-            Ok(true)
-        }
+        let bool = u8_to_bool(byte)?;
+        Ok(bool)
     }
 
     pub fn next_mpint(&mut self) -> Result<BigNum> {
