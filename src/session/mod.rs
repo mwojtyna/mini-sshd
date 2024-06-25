@@ -278,7 +278,7 @@ impl<'session_impl> Session<'session_impl> {
             .build()?;
         self.send_packet(&packet)?;
 
-        debug!("Disconnecting because of {:?}", &reason);
+        debug!("Disconnecting because of {:?}", reason);
         Ok(())
     }
 }

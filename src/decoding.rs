@@ -4,7 +4,7 @@ use std::{
     net::TcpStream,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{bail, Context, Result};
 use log::trace;
 use num_traits::FromPrimitive;
 use openssl::{
@@ -38,7 +38,7 @@ impl PayloadReader {
 
     // RFC 4251 § 5
     pub fn next_name_list(&mut self) -> Result<Vec<String>> {
-        let iter = self.iter.by_ref();
+        let iter = &mut self.iter;
         let length_bytes: Vec<u8> = iter.take(PACKET_LENGTH_SIZE).collect();
 
         let length = u8_array_to_u32(length_bytes.as_slice())?;
@@ -53,7 +53,7 @@ impl PayloadReader {
 
     // RFC 4251 § 5
     pub fn next_string(&mut self) -> Result<Vec<u8>> {
-        let iter = self.iter.by_ref();
+        let iter = &mut self.iter;
         let length_bytes: Vec<u8> = iter.take(STRING_LENGTH_SIZE).collect();
         let length = u8_array_to_u32(&length_bytes)?;
 
@@ -253,8 +253,7 @@ fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
 }
 /// `packet` must not contain the packet_length field
 fn get_payload(packet: Vec<u8>, packet_length: u32) -> Result<Vec<u8>> {
-    let mut reader = packet.into_iter();
-    let reader = reader.by_ref();
+    let reader = &mut packet.into_iter();
 
     let padding_length = reader.next().context("Could not read padding_length")?;
     trace!("padding_length = {} bytes", padding_length);
@@ -329,7 +328,7 @@ pub fn u8_to_bool(value: u8) -> Result<bool> {
     match value {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(anyhow!("Cannot convert u8 of value {} to bool", value)),
+        _ => bail!("Cannot convert u8 of value {} to bool", value),
     }
 }
 

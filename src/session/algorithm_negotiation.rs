@@ -1,6 +1,6 @@
 use std::fmt::Debug;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use indexmap::{IndexMap, IndexSet};
 use log::{debug, trace};
 
@@ -368,11 +368,11 @@ impl Session<'_> {
         trace!("intersection = {:#?}", intersection);
 
         if intersection.is_empty() {
-            Err(anyhow!(
+            bail!(
                 "Could not negotiate algorithms: client_algorithms={:?}, server_algorithms={:?}",
                 client_algorithms,
                 server_algorithms.keys(),
-            ))
+            )
         } else {
             let preffered_algorithm = intersection.into_iter().next().unwrap();
             trace!("preffered_algorithm = {:#?}", preffered_algorithm);

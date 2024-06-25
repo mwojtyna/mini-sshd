@@ -10,11 +10,11 @@ use log::{debug, trace};
 use super::Session;
 
 // RFC 4254 § 5.1
-macro_rules! reject_with_err {
-    ($session:expr, $channel_num:expr, $reason:expr, $error_msg:expr, $desc:expr) => {
+macro_rules! reject {
+    ($msg_type:expr, $session:expr, $channel_num:expr, $reason:expr, $error_msg:expr, $desc:expr) => {
         log::error!("{}", $error_msg);
 
-        let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_OPEN_FAILURE, $session)
+        let packet = PacketBuilder::new($msg_type, $session)
             .write_u32($channel_num)
             .write_u32($reason as u32)
             .write_string($desc.as_bytes())
@@ -36,7 +36,8 @@ impl<'session_impl> Session<'session_impl> {
         trace!("sender_channel = {}", sender_channel_num);
 
         if request_type != SESSION_REQUEST {
-            reject_with_err!(
+            reject!(
+                MessageType::SSH_MSG_CHANNEL_OPEN_FAILURE,
                 self,
                 sender_channel_num,
                 ChannelOpenFailureReason::SSH_OPEN_UNKNOWN_CHANNEL_TYPE,
@@ -72,7 +73,7 @@ impl<'session_impl> Session<'session_impl> {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let channel = self.channels.get(&recipient_chan_num);
+        let channel = self.channels.get_mut(&recipient_chan_num);
         if let Some(channel) = channel {
             // RFC 4254 § 5.4
             let request_type = reader.next_string_utf8()?;
@@ -85,7 +86,8 @@ impl<'session_impl> Session<'session_impl> {
                 ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
 
                 _ => {
-                    reject_with_err!(
+                    reject!(
+                        MessageType::SSH_MSG_CHANNEL_FAILURE,
                         self,
                         recipient_chan_num,
                         ChannelOpenFailureReason::SSH_OPEN_UNKNOWN_CHANNEL_TYPE,
@@ -94,8 +96,15 @@ impl<'session_impl> Session<'session_impl> {
                     );
                 }
             }
+            if want_reply {
+                let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_SUCCESS, self)
+                    .write_u32(recipient_chan_num)
+                    .build()?;
+                self.send_packet(&packet)?;
+            }
         } else {
-            reject_with_err!(
+            reject!(
+                MessageType::SSH_MSG_CHANNEL_FAILURE,
                 self,
                 recipient_chan_num,
                 ChannelOpenFailureReason::SSH_OPEN_CONNECT_FAILED,
