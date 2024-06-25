@@ -1,13 +1,16 @@
+use std::os::fd::AsRawFd;
+
 use anyhow::{bail, Context, Result};
 use enum_iterator::all;
 use log::{debug, log_enabled, trace};
 use nix::{
     fcntl::OFlag,
+    ioctl_write_ptr_bad,
     libc::{
-        VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT, VSTART, VSTOP,
-        VSUSP, VWERASE,
+        TIOCSWINSZ, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT,
+        VSTART, VSTOP, VSUSP, VWERASE,
     },
-    pty::{grantpt, posix_openpt, ptsname_r, unlockpt, PtyMaster},
+    pty::{grantpt, posix_openpt, ptsname_r, unlockpt, PtyMaster, Winsize},
     sys::termios::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
@@ -32,11 +35,18 @@ impl Channel {
     // RFC 4254 § 6.2
     pub fn pty_req(&mut self, reader: &mut PayloadReader) -> Result<()> {
         let term = reader.next_string_utf8()?;
-        let width_ch = reader.next_u32()?;
-        let height_ch = reader.next_u32()?;
-        let width_px = reader.next_u32()?;
-        let height_px = reader.next_u32()?;
+        let width_ch = reader.next_u32()? as u16;
+        let height_ch = reader.next_u32()? as u16;
+        let width_px = reader.next_u32()? as u16;
+        let height_px = reader.next_u32()? as u16;
         let modes_blob = reader.next_string()?;
+        // https://man7.org/linux/man-pages/man2/TIOCSWINSZ.2const.html
+        let winsize = Winsize {
+            ws_row: if height_ch > 0 { height_ch } else { height_px },
+            ws_col: if width_ch > 0 { width_ch } else { width_px },
+            ws_xpixel: 0, // unused
+            ws_ypixel: 0, // unused
+        };
 
         debug!("term = {}", term);
         debug!("width_ch = {}", width_ch);
@@ -55,9 +65,11 @@ impl Channel {
         }
 
         set_terminal_modes(&fd, &modes).context("Failed settings terminal modes")?;
+        resize_terminal_window(&fd, winsize).context("Failed resizing terminal window")?;
 
         grantpt(&fd)?;
         unlockpt(&fd)?;
+
         self.pty_fd = Some(fd);
         self.pty_modes = Some(modes);
 
@@ -259,6 +271,15 @@ fn set_terminal_modes(fd: &PtyMaster, modes: &Vec<TerminalMode>) -> Result<()> {
     }
 
     tcsetattr(fd, SetArg::TCSANOW, &termios)?;
+
+    Ok(())
+}
+
+fn resize_terminal_window(fd: &PtyMaster, winsize: Winsize) -> Result<()> {
+    ioctl_write_ptr_bad!(tiocswinsz, TIOCSWINSZ, Winsize);
+    unsafe {
+        tiocswinsz(fd.as_raw_fd(), &winsize)?;
+    }
 
     Ok(())
 }
