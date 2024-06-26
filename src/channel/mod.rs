@@ -1,5 +1,4 @@
 use nix::pty::PtyMaster;
-use terminal::TerminalMode;
 
 use crate::def_enum;
 
@@ -8,12 +7,12 @@ pub mod terminal;
 pub const SESSION_REQUEST: &str = "session";
 def_enum!(pub ChannelRequestType => &'static str {
     PTY_REQ => "pty-req",
-    // X11_REQ => "x11-req",
-    // X11 => "x11",
-    // ENV => "env",
-    // SHELL => "shell",
-    // EXEC => "exec",
-    // SUBSYSTEM => "subsystem"
+    X11_REQ => "x11-req",
+    X11 => "x11",
+    ENV => "env",
+    SHELL => "shell",
+    EXEC => "exec",
+    SUBSYSTEM => "subsystem"
 });
 
 #[allow(non_camel_case_types, dead_code)]
@@ -26,10 +25,9 @@ pub enum ChannelOpenFailureReason {
 
 #[derive(Debug)]
 pub struct Channel {
-    pub window_size: u32,
-    pub max_packet_size: u32,
+    window_size: u32,
+    max_packet_size: u32,
     pty_fd: Option<PtyMaster>,
-    pty_modes: Option<Vec<TerminalMode>>,
 }
 
 impl Channel {
@@ -38,7 +36,6 @@ impl Channel {
             window_size,
             max_packet_size,
             pty_fd: None,
-            pty_modes: None,
         }
     }
 }

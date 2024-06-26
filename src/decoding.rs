@@ -136,7 +136,10 @@ impl DecodedPacket {
 }
 
 // RFC 4253 § 6
-pub fn decode_packet(session: &mut Session) -> Result<DecodedPacket> {
+pub fn decode_packet(
+    session: &mut Session,
+    reader: &mut BufReader<TcpStream>,
+) -> Result<DecodedPacket> {
     trace!(
         "-- BEGIN PACKET DECODING{} --",
         if session.kex().finished {
@@ -147,9 +150,9 @@ pub fn decode_packet(session: &mut Session) -> Result<DecodedPacket> {
     );
 
     let decoded_packet = if session.kex().finished {
-        decode_packet_encrypted(session)?
+        decode_packet_encrypted(session, reader)?
     } else {
-        decode_packet_unencrypted(session.stream())?
+        decode_packet_unencrypted(reader)?
     };
 
     trace!(
@@ -162,7 +165,10 @@ pub fn decode_packet(session: &mut Session) -> Result<DecodedPacket> {
     );
     Ok(decoded_packet)
 }
-fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
+fn decode_packet_encrypted(
+    session: &Session,
+    reader: &mut BufReader<TcpStream>,
+) -> Result<DecodedPacket> {
     let block_size = session
         .algorithms()
         .encryption_algorithms_client_to_server
@@ -172,7 +178,6 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let mut decrypter = session.crypto().decrypter().borrow_mut();
 
     // Read first block
-    let mut reader = BufReader::new(session.stream());
     let mut first_block = vec![0u8; block_size];
     reader.read_exact(&mut first_block)?;
 
@@ -226,9 +231,7 @@ fn decode_packet_encrypted(session: &Session) -> Result<DecodedPacket> {
     let payload = get_payload(packet_dec, packet_length)?;
     Ok(DecodedPacket { payload })
 }
-fn decode_packet_unencrypted(stream: &TcpStream) -> Result<DecodedPacket> {
-    let mut reader = BufReader::new(stream);
-
+fn decode_packet_unencrypted(reader: &mut BufReader<TcpStream>) -> Result<DecodedPacket> {
     let mut packet_length_bytes = [0u8; PACKET_LENGTH_SIZE];
     reader
         .read_exact(&mut packet_length_bytes)

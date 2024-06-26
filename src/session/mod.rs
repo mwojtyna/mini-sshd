@@ -104,8 +104,10 @@ impl<'session_impl> Session<'session_impl> {
             self.stream.peer_addr().unwrap()
         );
 
+        let mut reader = BufReader::new(self.stream.try_clone()?);
+
         self.kex.client_ident = self
-            .ident_exchange()
+            .ident_exchange(&mut reader)
             .context("Failed during ident exchange")?;
 
         self.set_packet_handler(
@@ -114,7 +116,9 @@ impl<'session_impl> Session<'session_impl> {
         );
 
         loop {
-            let disconnect = self.handle_packet().context("Failed handling packet")?;
+            let disconnect = self
+                .handle_packet(&mut reader)
+                .context("Failed handling packet")?;
             if let Some(reason) = disconnect {
                 self.disconnect(reason)?;
                 break;
@@ -123,10 +127,6 @@ impl<'session_impl> Session<'session_impl> {
         }
 
         Ok(())
-    }
-
-    pub fn stream(&self) -> &TcpStream {
-        &self.stream
     }
 
     pub fn server_sequence_number(&self) -> u32 {
@@ -184,13 +184,12 @@ impl<'session_impl> Session<'session_impl> {
     }
 
     // RFC 4253 § 4.2
-    fn ident_exchange(&mut self) -> Result<String> {
+    fn ident_exchange(&mut self, reader: &mut BufReader<TcpStream>) -> Result<String> {
         debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
 
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
         self.server_sequence_number = 0; // Sequence number doesn't increment for ident exchange
 
-        let mut reader = BufReader::new(&mut self.stream);
         let mut client_ident = String::new();
         reader
             .read_line(&mut client_ident)
@@ -224,8 +223,11 @@ impl<'session_impl> Session<'session_impl> {
         Ok(client_ident)
     }
 
-    fn handle_packet(&mut self) -> Result<Option<DisconnectReason>> {
-        let packet = decode_packet(self)?;
+    fn handle_packet(
+        &mut self,
+        reader: &mut BufReader<TcpStream>,
+    ) -> Result<Option<DisconnectReason>> {
+        let packet = decode_packet(self, reader)?;
         let msg_type = packet.message_type()?;
         debug!(
             "Received message of type = {:?}, server_sequence_number = {}, client_sequence_number = {}",
@@ -233,7 +235,7 @@ impl<'session_impl> Session<'session_impl> {
         );
 
         let reader = PayloadReader::new(packet.payload());
-        let handler: Option<PacketHandlerFn> = self.packet_handlers.get(&msg_type).copied();
+        let handler: Option<&PacketHandlerFn> = self.packet_handlers.get(&msg_type);
 
         if let Some(handler) = handler {
             let args = PacketHandlerArgs {

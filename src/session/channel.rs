@@ -96,6 +96,7 @@ impl<'session_impl> Session<'session_impl> {
                     );
                 }
             }
+
             if want_reply {
                 let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_SUCCESS, self)
                     .write_u32(recipient_chan_num)

@@ -56,7 +56,7 @@ impl Channel {
         trace!("modes_blob = {:?}", modes_blob);
 
         let modes = decode_terminal_modes(&modes_blob)?;
-        debug!("modes = {:?}", modes);
+        trace!("modes = {:?}", modes);
 
         let fd = posix_openpt(OFlag::O_RDWR)?;
         if log_enabled!(log::Level::Trace) {
@@ -71,7 +71,6 @@ impl Channel {
         unlockpt(&fd)?;
 
         self.pty_fd = Some(fd);
-        self.pty_modes = Some(modes);
 
         Ok(())
     }
@@ -90,6 +89,7 @@ fn decode_terminal_modes(encoded_modes: &[u8]) -> Result<Vec<TerminalMode>> {
             TerminalOpCode::from_u8(*opcode).context(format!("Opcode {} not supported", opcode))?;
 
         if opcode == TerminalOpCode::TTY_OP_END {
+            trace!("Finished terminal mode decoding");
             break;
         }
 
@@ -109,7 +109,9 @@ fn set_terminal_modes(fd: &PtyMaster, modes: &Vec<TerminalMode>) -> Result<()> {
         // Some codes are not supported on Linux
         // https://man7.org/linux/man-pages/man3/termios.3.html
         match mode.opcode {
-            TerminalOpCode::TTY_OP_END => panic!("This should never happen"),
+            TerminalOpCode::TTY_OP_END => bail!(
+                "TTY_OP_END appeared in terminal modes after decoding, this should never happen"
+            ),
             TerminalOpCode::VINTR => {
                 termios.control_chars[VINTR] = mode.arg as u8;
             }
