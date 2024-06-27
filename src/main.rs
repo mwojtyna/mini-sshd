@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fs::{read_to_string, File},
+    fs::File,
     net::TcpListener,
     path::Path,
     sync::OnceLock,
@@ -171,7 +171,7 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Au
         File::create_new(&path)?;
     }
 
-    let contents = read_to_string(path)?;
+    let contents = std::fs::read_to_string(path)?;
     let split: Vec<&str> = contents.trim().split('\n').collect();
     let mut authorized_keys = HashSet::new();
 

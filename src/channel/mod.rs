@@ -1,4 +1,4 @@
-use portable_pty::PtyPair;
+use nix::pty::OpenptyResult;
 
 use crate::def_enum;
 
@@ -26,7 +26,7 @@ pub enum ChannelOpenFailureReason {
 pub struct Channel {
     window_size: u32,
     max_packet_size: u32,
-    pty_pair: Option<PtyPair>,
+    pty_fds: Option<OpenptyResult>,
 }
 
 impl Channel {
@@ -34,11 +34,11 @@ impl Channel {
         Channel {
             window_size,
             max_packet_size,
-            pty_pair: None,
+            pty_fds: None,
         }
     }
 
-    pub fn pty_pair(&self) -> &PtyPair {
-        self.pty_pair.as_ref().expect("Pty not initialized yet")
+    pub fn pty_fds(&self) -> &OpenptyResult {
+        self.pty_fds.as_ref().expect("Pty not initialized yet")
     }
 }

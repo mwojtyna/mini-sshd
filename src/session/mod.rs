@@ -191,8 +191,6 @@ impl<'session_impl> Session<'session_impl> {
 
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self, reader: &mut BufReader<TcpStream>) -> Result<String> {
-        debug!("--- BEGIN IDENTIFICATION EXCHANGE ---");
-
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
         self.server_sequence_number = 0; // Sequence number doesn't increment for ident exchange
 
@@ -225,7 +223,6 @@ impl<'session_impl> Session<'session_impl> {
             );
         }
 
-        debug!("--- END IDENTIFICATION EXCHANGE ---");
         Ok(client_ident)
     }
 

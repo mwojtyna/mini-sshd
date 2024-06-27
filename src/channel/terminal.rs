@@ -1,23 +1,33 @@
-use std::os::fd::{AsFd, BorrowedFd};
+use std::{
+    os::{
+        fd::{AsFd, AsRawFd, FromRawFd, RawFd},
+        unix::process::CommandExt,
+    },
+    process::{Command, Stdio},
+};
 
 use anyhow::{bail, Context, Result};
 use enum_iterator::all;
 use log::{debug, trace};
 use nix::{
+    fcntl::{fcntl, FcntlArg, FdFlag},
+    ioctl_write_int_bad,
     libc::{
-        VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT, VSTART, VSTOP,
-        VSUSP, VWERASE,
+        TIOCSCTTY, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT,
+        VSTART, VSTOP, VSUSP, VWERASE,
     },
+    pty::{openpty, Winsize},
     sys::termios::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
     },
+    unistd::{dup, read, setsid, User},
 };
 use num_traits::FromPrimitive;
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use crate::{
     decoding::{u8_array_to_u32, u8_to_bool, PayloadReader},
+    hex_dump,
     types::TerminalOpCode,
 };
 
@@ -38,13 +48,15 @@ impl Channel {
         let width_px = reader.next_u32()? as u16;
         let height_px = reader.next_u32()? as u16;
         let modes_blob = reader.next_string()?;
+
         // https://man7.org/linux/man-pages/man2/TIOCSWINSZ.2const.html
-        let winsize = PtySize {
-            rows: if height_ch > 0 { height_ch } else { height_px },
-            cols: if width_ch > 0 { width_ch } else { width_px },
-            pixel_width: 0,  // unused
-            pixel_height: 0, // unused
+        let winsize = Winsize {
+            ws_row: if height_ch > 0 { height_ch } else { height_px },
+            ws_col: if width_ch > 0 { width_ch } else { width_px },
+            ws_xpixel: 0, // unused
+            ws_ypixel: 0, // unused
         };
+        let modes = decode_terminal_modes(&modes_blob)?;
 
         debug!("term = {}", term);
         debug!("width_ch = {}", width_ch);
@@ -52,31 +64,79 @@ impl Channel {
         debug!("width_px = {}", width_px);
         debug!("height_px = {}", height_px);
         trace!("modes_blob = {:?}", modes_blob);
-
-        let pty_system = native_pty_system();
-        let pair = pty_system.openpty(winsize)?;
-
-        let modes = decode_terminal_modes(&modes_blob)?;
         trace!("modes = {:?}", modes);
 
-        set_terminal_modes(
-            unsafe { BorrowedFd::borrow_raw(pair.master.as_raw_fd().unwrap()) },
-            &modes,
-        )
-        .context("Failed settings terminal modes")?;
+        let result = openpty(&winsize, None)?;
+        cloexec(result.master.as_raw_fd())?;
+        cloexec(result.slave.as_raw_fd())?;
+        set_terminal_modes(&result.slave, &modes).context("Failed settings terminal modes")?;
+        debug!(
+            "Opened pty with fds: master = {}, slave = {}",
+            result.master.as_raw_fd(),
+            result.slave.as_raw_fd()
+        );
 
-        self.pty_pair = Some(pair);
+        self.pty_fds = Some(result);
 
         Ok(())
     }
 
     pub fn shell(&self, user_name: &str) -> Result<()> {
-        let mut shell = CommandBuilder::new_default_prog();
-        shell.env("SHELL", "/bin/bash");
-        shell.env("USER", user_name);
-        self.pty_pair().slave.spawn_command(shell)?;
+        let user = User::from_name(user_name)?
+            .context(format!("User with name {:?} not found", user_name))?;
+        trace!("user = {:?}", user);
+
+        let slave_fd = &self.pty_fds().slave;
+        let slave_raw_fd = slave_fd.as_raw_fd();
+        // Login shell must have '-' prepended to shell executable
+        let arg0 = "-".to_owned()
+            + user
+                .shell
+                .to_string_lossy()
+                .rsplit('/')
+                .next()
+                .context("Invalid shell path")?;
+
+        let stdin = fd_to_stdio(slave_fd)?;
+        let stdout = fd_to_stdio(slave_fd)?;
+        let stderr = fd_to_stdio(slave_fd)?;
+
+        let child = unsafe {
+            Command::new(&user.shell)
+                .arg0(arg0)
+                .current_dir(user.dir)
+                .env_clear()
+                .env("SHELL", &user.shell)
+                .envs(std::env::vars_os())
+                .uid(user.uid.as_raw())
+                .gid(user.gid.as_raw())
+                .stdin(stdin)
+                .stdout(stdout)
+                .stderr(stderr)
+                .pre_exec(move || {
+                    setsid()?;
+
+                    ioctl_write_int_bad!(tiocsctty, TIOCSCTTY);
+                    tiocsctty(slave_raw_fd, 0)?;
+
+                    Ok(())
+                })
+                .spawn()?
+        };
+        debug!("Opened shell {:?} with pid {:?}", user.shell, child.id());
+
+        self.read_terminal()?;
 
         Ok(())
+    }
+
+    fn read_terminal(&self) -> Result<Vec<u8>> {
+        let fd = self.pty_fds().master.as_raw_fd();
+        let mut buf = vec![0; 1024];
+        let amount = read(fd, &mut buf)?;
+        hex_dump!(&buf[..amount]);
+
+        Ok(buf)
     }
 }
 
@@ -279,6 +339,21 @@ fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &Vec<TerminalMode>) -> Resul
     tcsetattr(fd, SetArg::TCSANOW, &termios)?;
 
     Ok(())
+}
+
+fn cloexec(fd: RawFd) -> Result<()> {
+    let flags_set = fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
+    if flags_set == -1 {
+        bail!("Failed to set cloexec on fd '{}'", fd);
+    }
+
+    Ok(())
+}
+
+fn fd_to_stdio<F: AsRawFd>(fd: &F) -> Result<Stdio> {
+    let duped = dup(fd.as_raw_fd())?;
+    let stdio = unsafe { Stdio::from_raw_fd(duped) };
+    Ok(stdio)
 }
 
 #[allow(non_snake_case)]
