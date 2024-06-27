@@ -34,11 +34,17 @@ pub const PORT: usize = 6969;
 
 static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
+#[derive(PartialEq, Eq, Hash, Debug)]
+pub struct AuthorizedKey {
+    pub public_key: Vec<u8>,
+    pub user_name: String,
+}
+
 pub struct ServerConfig {
     ident_string: String,
     algorithms: ServerAlgorithms,
     host_key: HashMap<&'static str, EcHostKey>,
-    authorized_keys: HashSet<Vec<u8>>,
+    authorized_keys: HashSet<AuthorizedKey>,
 }
 
 fn main() -> Result<()> {
@@ -151,7 +157,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Vec<u8>>> {
+fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<AuthorizedKey>> {
     trace!("--- BEGIN AUTHORIZED_KEYS READ ---");
 
     // TODO: Config file
@@ -167,7 +173,7 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Ve
 
     let contents = read_to_string(path)?;
     let split: Vec<&str> = contents.trim().split('\n').collect();
-    let mut public_keys = HashSet::new();
+    let mut authorized_keys = HashSet::new();
 
     for (n, line) in split.iter().enumerate() {
         let mut parts = line.split(' ');
@@ -183,10 +189,17 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Ve
             hex_dump!(public_key_encoded);
 
             let (public_key_bytes, _) = decode_ec_public_key(&public_key_encoded, algo.curve)?;
-            public_keys.insert(public_key_bytes);
 
             let host = parts.next().context("Failed reading host")?;
             trace!("host_{}: {}", n, host);
+
+            let user_name = host.split('@').next().context("Failed reading user name")?;
+            trace!("user_name_{}: {}", n, user_name);
+
+            authorized_keys.insert(AuthorizedKey {
+                public_key: public_key_bytes,
+                user_name: user_name.to_owned(),
+            });
         } else {
             warn!(
                 "Unsupported public key algorithm '{}' in 'authorized_keys' file, skipping...",
@@ -196,7 +209,7 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Ve
     }
 
     trace!("--- END AUTHORIZED_KEYS READ ---");
-    Ok(public_keys)
+    Ok(authorized_keys)
 }
 
 fn connect() -> Result<()> {

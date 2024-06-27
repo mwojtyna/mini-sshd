@@ -10,6 +10,7 @@ use crate::{
     encoding::{encode_string, PacketBuilder, STRING_LENGTH_SIZE},
     hex_dump,
     types::{HostKeyAlgorithm, MessageType},
+    AuthorizedKey,
 };
 
 use super::Session;
@@ -113,12 +114,15 @@ impl<'session_impl> Session<'session_impl> {
                 decode_ec_public_key(&public_key_blob, client_public_key_algo.curve)?;
             trace!("public_key = {:02x?}", public_key_bytes);
 
-            if !self
-                .server_config
-                .authorized_keys
-                .contains(&public_key_bytes)
-            {
-                reject_with_err!(self, false, "Public key not in 'authorized_keys' file");
+            if !self.server_config.authorized_keys.contains(&AuthorizedKey {
+                public_key: public_key_bytes,
+                user_name: user_name.to_owned(),
+            }) {
+                reject_with_err!(
+                    self,
+                    false,
+                    "Public key not in 'authorized_keys' file or username doesn't match"
+                );
             }
 
             let digest_data = self.concat_digest_data(
