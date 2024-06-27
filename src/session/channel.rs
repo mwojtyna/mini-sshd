@@ -73,7 +73,9 @@ impl<'session_impl> Session<'session_impl> {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
+        let user_name = self.user_name();
         let channel = self.channels.get_mut(&recipient_chan_num);
+
         if let Some(channel) = channel {
             // RFC 4254 § 5.4
             let request_type = reader.next_string_utf8()?;
@@ -84,6 +86,7 @@ impl<'session_impl> Session<'session_impl> {
 
             match request_type.as_str() {
                 ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
+                ChannelRequestType::SHELL => channel.shell(&user_name)?,
 
                 _ => {
                     reject!(

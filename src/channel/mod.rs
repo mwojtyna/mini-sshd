@@ -1,4 +1,4 @@
-use nix::pty::PtyMaster;
+use portable_pty::PtyPair;
 
 use crate::def_enum;
 
@@ -23,11 +23,10 @@ pub enum ChannelOpenFailureReason {
     SSH_OPEN_RESOURCE_SHORTAGE = 4,
 }
 
-#[derive(Debug)]
 pub struct Channel {
     window_size: u32,
     max_packet_size: u32,
-    pty_fd: Option<PtyMaster>,
+    pty_pair: Option<PtyPair>,
 }
 
 impl Channel {
@@ -35,7 +34,11 @@ impl Channel {
         Channel {
             window_size,
             max_packet_size,
-            pty_fd: None,
+            pty_pair: None,
         }
+    }
+
+    pub fn pty_pair(&self) -> &PtyPair {
+        self.pty_pair.as_ref().expect("Pty not initialized yet")
     }
 }

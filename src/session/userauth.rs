@@ -62,6 +62,8 @@ impl<'session_impl> Session<'session_impl> {
             }
         }
 
+        self.user_name = Some(user_name);
+
         debug!("--- END USERAUTH REQUEST ---");
         Ok(())
     }

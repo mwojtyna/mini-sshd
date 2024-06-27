@@ -39,6 +39,7 @@ pub struct Session<'session> {
 
     packet_handlers: HashMap<MessageType, PacketHandlerFn>,
     kex: KeyExchange,
+    user_name: Option<String>,
     channels: HashMap<u32, Channel>,
 
     // Secrets
@@ -85,6 +86,7 @@ impl<'session_impl> Session<'session_impl> {
 
             packet_handlers,
             kex: KeyExchange::default(),
+            user_name: None,
             channels: HashMap::new(),
 
             session_id: Vec::new(),
@@ -153,6 +155,10 @@ impl<'session_impl> Session<'session_impl> {
 
     pub fn kex(&self) -> &KeyExchange {
         &self.kex
+    }
+
+    pub fn user_name(&self) -> String {
+        self.user_name.clone().expect("Userauth not completed yet")
     }
 
     pub fn iv_client_server(&self) -> &Vec<u8> {

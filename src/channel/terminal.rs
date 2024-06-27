@@ -1,22 +1,20 @@
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsFd, BorrowedFd};
 
 use anyhow::{bail, Context, Result};
 use enum_iterator::all;
-use log::{debug, log_enabled, trace};
+use log::{debug, trace};
 use nix::{
-    fcntl::OFlag,
-    ioctl_write_ptr_bad,
     libc::{
-        TIOCSWINSZ, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT,
-        VSTART, VSTOP, VSUSP, VWERASE,
+        VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT, VSTART, VSTOP,
+        VSUSP, VWERASE,
     },
-    pty::{grantpt, posix_openpt, ptsname_r, unlockpt, PtyMaster, Winsize},
     sys::termios::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
     },
 };
 use num_traits::FromPrimitive;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
 use crate::{
     decoding::{u8_array_to_u32, u8_to_bool, PayloadReader},
@@ -41,11 +39,11 @@ impl Channel {
         let height_px = reader.next_u32()? as u16;
         let modes_blob = reader.next_string()?;
         // https://man7.org/linux/man-pages/man2/TIOCSWINSZ.2const.html
-        let winsize = Winsize {
-            ws_row: if height_ch > 0 { height_ch } else { height_px },
-            ws_col: if width_ch > 0 { width_ch } else { width_px },
-            ws_xpixel: 0, // unused
-            ws_ypixel: 0, // unused
+        let winsize = PtySize {
+            rows: if height_ch > 0 { height_ch } else { height_px },
+            cols: if width_ch > 0 { width_ch } else { width_px },
+            pixel_width: 0,  // unused
+            pixel_height: 0, // unused
         };
 
         debug!("term = {}", term);
@@ -55,22 +53,28 @@ impl Channel {
         debug!("height_px = {}", height_px);
         trace!("modes_blob = {:?}", modes_blob);
 
+        let pty_system = native_pty_system();
+        let pair = pty_system.openpty(winsize)?;
+
         let modes = decode_terminal_modes(&modes_blob)?;
         trace!("modes = {:?}", modes);
 
-        let fd = posix_openpt(OFlag::O_RDWR)?;
-        if log_enabled!(log::Level::Trace) {
-            let name = ptsname_r(&fd)?;
-            trace!("Opened pty on {}", name);
-        }
+        set_terminal_modes(
+            unsafe { BorrowedFd::borrow_raw(pair.master.as_raw_fd().unwrap()) },
+            &modes,
+        )
+        .context("Failed settings terminal modes")?;
 
-        set_terminal_modes(&fd, &modes).context("Failed settings terminal modes")?;
-        resize_terminal_window(&fd, winsize).context("Failed resizing terminal window")?;
+        self.pty_pair = Some(pair);
 
-        grantpt(&fd)?;
-        unlockpt(&fd)?;
+        Ok(())
+    }
 
-        self.pty_fd = Some(fd);
+    pub fn shell(&self, user_name: &str) -> Result<()> {
+        let mut shell = CommandBuilder::new_default_prog();
+        shell.env("SHELL", "/bin/bash");
+        shell.env("USER", user_name);
+        self.pty_pair().slave.spawn_command(shell)?;
 
         Ok(())
     }
@@ -102,7 +106,7 @@ fn decode_terminal_modes(encoded_modes: &[u8]) -> Result<Vec<TerminalMode>> {
     Ok(modes)
 }
 
-fn set_terminal_modes(fd: &PtyMaster, modes: &Vec<TerminalMode>) -> Result<()> {
+fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &Vec<TerminalMode>) -> Result<()> {
     let mut termios = tcgetattr(fd)?;
 
     for mode in modes {
@@ -273,15 +277,6 @@ fn set_terminal_modes(fd: &PtyMaster, modes: &Vec<TerminalMode>) -> Result<()> {
     }
 
     tcsetattr(fd, SetArg::TCSANOW, &termios)?;
-
-    Ok(())
-}
-
-fn resize_terminal_window(fd: &PtyMaster, winsize: Winsize) -> Result<()> {
-    ioctl_write_ptr_bad!(tiocswinsz, TIOCSWINSZ, Winsize);
-    unsafe {
-        tiocswinsz(fd.as_raw_fd(), &winsize)?;
-    }
 
     Ok(())
 }

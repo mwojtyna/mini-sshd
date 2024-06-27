@@ -248,5 +248,5 @@ pub struct CompressionAlgorithmDetails {}
 
 def_enum!(pub ServiceName => &'static str {
     SSH_USERAUTH => "ssh-userauth",
-    // SSH_CONNECTION => "ssh-connection",
+    SSH_CONNECTION => "ssh-connection",
 });
