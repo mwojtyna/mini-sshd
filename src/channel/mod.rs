@@ -104,6 +104,7 @@ impl Channel {
             window_size: self.window_size,
             max_packet_size: self.max_packet_size,
             pty_fds: Some(pty_fds),
+            // TODO:
         };
         Ok(clone)
     }

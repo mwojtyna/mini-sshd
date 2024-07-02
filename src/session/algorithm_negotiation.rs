@@ -106,7 +106,7 @@ pub struct Algorithms {
     pub languages_server_to_client: String,
 }
 
-impl Session<'_> {
+impl Session {
     // RFC 4253 § 7
     pub fn algorithm_negotiation(
         &mut self,

@@ -26,7 +26,7 @@ macro_rules! reject {
     };
 }
 
-impl<'session_impl> Session<'session_impl> {
+impl Session {
     // RFC 4254 § 5.1
     pub fn open_channel(&mut self, reader: &mut PayloadReader) -> Result<()> {
         let request_type = reader.next_string_utf8()?;

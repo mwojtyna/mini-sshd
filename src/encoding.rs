@@ -21,15 +21,12 @@ const BLOCK_SIZE_NON_ENCRYPTED: usize = 8;
 
 pub struct PacketBuilder<'packet_builder> {
     payload: Vec<u8>,
-    session: &'packet_builder Session<'packet_builder>,
+    session: &'packet_builder Session,
 }
 
 #[allow(dead_code)]
 impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
-    pub fn new(
-        message_type: MessageType,
-        session: &'packet_builder_impl Session<'packet_builder_impl>,
-    ) -> Self {
+    pub fn new(message_type: MessageType, session: &'packet_builder_impl Session) -> Self {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,

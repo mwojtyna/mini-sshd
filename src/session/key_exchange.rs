@@ -12,7 +12,7 @@ use crate::{
     Session,
 };
 
-impl Session<'_> {
+impl Session {
     // RFC 5656 § 4
     /// # Returns
     /// `(shared_secret, hash)`

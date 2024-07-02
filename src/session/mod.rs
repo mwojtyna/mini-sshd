@@ -28,12 +28,12 @@ pub mod key_exchange;
 pub mod packet_handlers;
 pub mod userauth;
 
-pub struct Session<'session> {
+pub struct Session {
     stream: TcpStream,
     server_sequence_number: u32,
     client_sequence_number: u32,
 
-    server_config: &'session ServerConfig,
+    server_config: &'static ServerConfig,
     algorithms: Option<Algorithms>,
     crypto: Option<Crypto>,
 
@@ -61,8 +61,8 @@ pub struct KeyExchange {
     pub ext_info_c: bool,
 }
 
-impl<'session_impl> Session<'session_impl> {
-    pub fn new(stream: TcpStream, server_config: &'session_impl ServerConfig) -> Self {
+impl Session {
+    pub fn new(stream: TcpStream, server_config: &'static ServerConfig) -> Self {
         let iter = all::<MessageType>()
             .map::<(MessageType, PacketHandlerFn), _>(|t| (t, packet_handlers::not_set));
 
@@ -100,7 +100,7 @@ impl<'session_impl> Session<'session_impl> {
     }
 
     /// This will handle all incoming packets, blocking this thread until disconnect.
-    pub fn start(&'session_impl mut self) -> Result<()> {
+    pub fn start(&mut self) -> Result<()> {
         info!(
             "Created new session for client on address {}",
             self.stream.peer_addr().unwrap()
