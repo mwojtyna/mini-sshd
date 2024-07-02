@@ -1,8 +1,8 @@
-use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::fd::OwnedFd;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use log::debug;
-use nix::{pty::OpenptyResult, unistd::dup};
+use nix::pty::OpenptyResult;
 use terminal::cloexec;
 
 use crate::{def_enum, session::Session};
@@ -84,17 +84,8 @@ impl Channel {
 
     pub fn try_clone(&self) -> Result<Self> {
         let pty_fds = PtyPair {
-            master: unsafe {
-                OwnedFd::from_raw_fd(
-                    dup(self.pty_fds().master.as_raw_fd())
-                        .context("Failed to dup master pty fd")?,
-                )
-            },
-            slave: unsafe {
-                OwnedFd::from_raw_fd(
-                    dup(self.pty_fds().slave.as_raw_fd()).context("Failed to dup slave pty fd")?,
-                )
-            },
+            master: self.pty_fds().master.try_clone()?,
+            slave: self.pty_fds().slave.try_clone()?,
         };
         cloexec(&pty_fds.master)?;
         cloexec(&pty_fds.slave)?;

@@ -21,7 +21,7 @@ use nix::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
     },
-    unistd::{dup, read, setsid, User},
+    unistd::{read, setsid, User},
 };
 use num_traits::FromPrimitive;
 
@@ -96,9 +96,9 @@ impl Channel {
                 .next()
                 .context("Invalid shell path")?;
 
-        let stdin = fd_to_stdio(slave_fd)?;
-        let stdout = fd_to_stdio(slave_fd)?;
-        let stderr = fd_to_stdio(slave_fd)?;
+        let stdin = fd_to_stdio(slave_fd);
+        let stdout = fd_to_stdio(slave_fd);
+        let stderr = fd_to_stdio(slave_fd);
 
         let child = unsafe {
             Command::new(&user.shell)
@@ -346,10 +346,8 @@ fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &Vec<TerminalMode>) -> Resul
     Ok(())
 }
 
-fn fd_to_stdio<F: AsRawFd>(fd: &F) -> Result<Stdio> {
-    let duped = dup(fd.as_raw_fd())?;
-    let stdio = unsafe { Stdio::from_raw_fd(duped) };
-    Ok(stdio)
+fn fd_to_stdio<F: AsRawFd>(fd: &F) -> Stdio {
+    unsafe { Stdio::from_raw_fd(fd.as_raw_fd()) }
 }
 
 #[allow(non_snake_case)]
