@@ -1,3 +1,5 @@
+use std::thread;
+
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
     decoding::PayloadReader,
@@ -97,7 +99,7 @@ impl Session {
                     channel.shell(&user_name)?;
 
                     let mut session = self.try_clone()?;
-                    std::thread::spawn::<_, Result<()>>(move || loop {
+                    thread::spawn::<_, Result<()>>(move || loop {
                         let data = channel.read_terminal()?;
                         let packet =
                             PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, &session)
