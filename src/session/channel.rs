@@ -98,7 +98,7 @@ impl Session {
                     let mut channel = channel.try_clone().context("Failed to clone channel")?;
                     channel.shell(&user_name)?;
 
-                    let mut session = self.try_clone()?;
+                    let mut session = self.try_clone().context("Failed to clone session")?;
                     thread::spawn::<_, Result<()>>(move || loop {
                         let data = channel.read_terminal()?;
                         let packet =

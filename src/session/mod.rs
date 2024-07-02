@@ -11,7 +11,7 @@ use std::{
 use algorithm_negotiation::Algorithms;
 use anyhow::{bail, Context, Result};
 use enum_iterator::all;
-use log::{debug, error, info, trace};
+use log::{debug, error, info, trace, warn};
 use packet_handlers::{PacketHandlerArgs, PacketHandlerFn};
 use pretty_hex::pretty_hex;
 
@@ -266,7 +266,11 @@ impl Session {
                 msg_type,
                 packet,
             };
-            handler(self, args)?;
+
+            let reason = handler(self, args)?;
+            if let Some(reason) = reason {
+                return Ok(Some(reason));
+            }
         } else {
             error!(
                 "Unhandled message type.\ntype: {:?}\npayload:\n{}",
@@ -292,7 +296,7 @@ impl Session {
             .build()?;
         self.send_packet(&packet)?;
 
-        debug!("Disconnecting because of {:?}", reason);
+        warn!("Disconnecting because of {:?}", reason);
         Ok(())
     }
 }

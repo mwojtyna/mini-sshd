@@ -47,13 +47,16 @@ pub const algorithm_negotiation: PacketHandlerFn = |session, mut args| {
     Ok(None)
 };
 
-pub const key_exchange: PacketHandlerFn = |session, mut args| {
-    let (k, h) = session.key_exchange(&mut args.reader)?;
-    session.compute_secrets(k, h)?;
+pub const key_exchange: PacketHandlerFn =
+    |session, mut args| match session.key_exchange(&mut args.reader) {
+        Ok((k, h)) => {
+            session.compute_secrets(k, h)?;
 
-    session.set_packet_handler(MessageType::SSH_MSG_NEWKEYS, new_keys);
-    Ok(None)
-};
+            session.set_packet_handler(MessageType::SSH_MSG_NEWKEYS, new_keys);
+            Ok(None)
+        }
+        Err(_) => Ok(Some(DisconnectReason::SSH_DISCONNECT_KEY_EXCHANGE_FAILED)),
+    };
 
 pub const new_keys: PacketHandlerFn = |session, _| {
     let packet = PacketBuilder::new(MessageType::SSH_MSG_NEWKEYS, session).build()?;
