@@ -1,6 +1,6 @@
 use std::{
     os::{
-        fd::{AsFd, AsRawFd, FromRawFd, RawFd},
+        fd::{AsFd, AsRawFd, FromRawFd},
         unix::process::CommandExt,
     },
     process::{Command, Stdio},
@@ -27,7 +27,6 @@ use num_traits::FromPrimitive;
 
 use crate::{
     decoding::{u8_array_to_u32, u8_to_bool, PayloadReader},
-    hex_dump,
     types::TerminalOpCode,
 };
 
@@ -67,8 +66,8 @@ impl Channel {
         trace!("modes = {:?}", modes);
 
         let result = openpty(&winsize, None)?;
-        cloexec(result.master.as_raw_fd())?;
-        cloexec(result.slave.as_raw_fd())?;
+        cloexec(&result.master)?;
+        cloexec(&result.slave)?;
         set_terminal_modes(&result.slave, &modes).context("Failed settings terminal modes")?;
         debug!(
             "Opened pty with fds: master = {}, slave = {}",
@@ -76,7 +75,7 @@ impl Channel {
             result.slave.as_raw_fd()
         );
 
-        self.pty_fds = Some(result);
+        self.pty_fds = Some(result.into());
 
         Ok(())
     }
@@ -125,19 +124,25 @@ impl Channel {
         };
         debug!("Opened shell {:?} with pid {:?}", user.shell, child.id());
 
-        self.read_terminal()?;
-
         Ok(())
     }
 
-    fn read_terminal(&self) -> Result<Vec<u8>> {
+    pub fn read_terminal(&self) -> Result<Vec<u8>> {
         let fd = self.pty_fds().master.as_raw_fd();
         let mut buf = vec![0; 1024];
         let amount = read(fd, &mut buf)?;
-        hex_dump!(&buf[..amount]);
 
-        Ok(buf)
+        Ok(buf[..amount].to_vec())
     }
+}
+
+pub fn cloexec<F: AsRawFd>(fd: &F) -> Result<()> {
+    let flags_set = fcntl(fd.as_raw_fd(), FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
+    if flags_set == -1 {
+        bail!("Failed to set cloexec on fd '{}'", fd.as_raw_fd());
+    }
+
+    Ok(())
 }
 
 fn decode_terminal_modes(encoded_modes: &[u8]) -> Result<Vec<TerminalMode>> {
@@ -337,15 +342,6 @@ fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &Vec<TerminalMode>) -> Resul
     }
 
     tcsetattr(fd, SetArg::TCSANOW, &termios)?;
-
-    Ok(())
-}
-
-fn cloexec(fd: RawFd) -> Result<()> {
-    let flags_set = fcntl(fd, FcntlArg::F_SETFD(FdFlag::FD_CLOEXEC))?;
-    if flags_set == -1 {
-        bail!("Failed to set cloexec on fd '{}'", fd);
-    }
 
     Ok(())
 }

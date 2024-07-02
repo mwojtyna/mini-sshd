@@ -2,6 +2,10 @@ use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
     net::TcpStream,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc, Mutex,
+    },
 };
 
 use algorithm_negotiation::Algorithms;
@@ -28,31 +32,24 @@ pub mod key_exchange;
 pub mod packet_handlers;
 pub mod userauth;
 
-pub struct Session<'session> {
+const ORDERING: Ordering = Ordering::Relaxed;
+
+pub struct Session {
     stream: TcpStream,
-    server_sequence_number: u32,
-    client_sequence_number: u32,
+    server_sequence_number: Arc<AtomicU32>,
+    client_sequence_number: Arc<AtomicU32>,
+    server_config: &'static ServerConfig,
+    packet_handlers: Arc<Mutex<HashMap<MessageType, PacketHandlerFn>>>,
 
-    server_config: &'session ServerConfig,
-    algorithms: Option<Algorithms>,
-    crypto: Option<Crypto>,
-
-    packet_handlers: HashMap<MessageType, PacketHandlerFn>,
+    algorithms: Option<Arc<Algorithms>>,
+    crypto: Option<Arc<Mutex<Crypto>>>,
     kex: KeyExchange,
-    user_name: Option<String>,
-    channels: HashMap<u32, Channel>,
-
-    // Secrets
-    session_id: Vec<u8>,
-    iv_client_server: Vec<u8>,
-    iv_server_client: Vec<u8>,
-    enc_key_client_server: Vec<u8>,
-    enc_key_server_client: Vec<u8>,
-    integrity_key_client_server: Vec<u8>,
-    integrity_key_server_client: Vec<u8>,
+    user_name: Option<Arc<String>>,
+    channels: Arc<Mutex<HashMap<u32, Channel>>>,
+    secrets: Option<Arc<Secrets>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct KeyExchange {
     pub client_ident: String,
     pub client_kexinit_payload: Vec<u8>,
@@ -61,8 +58,19 @@ pub struct KeyExchange {
     pub ext_info_c: bool,
 }
 
-impl<'session_impl> Session<'session_impl> {
-    pub fn new(stream: TcpStream, server_config: &'session_impl ServerConfig) -> Self {
+#[derive(Debug)]
+pub struct Secrets {
+    pub session_id: Vec<u8>,
+    pub iv_client_server: Vec<u8>,
+    pub iv_server_client: Vec<u8>,
+    pub enc_key_client_server: Vec<u8>,
+    pub enc_key_server_client: Vec<u8>,
+    pub integrity_key_client_server: Vec<u8>,
+    pub integrity_key_server_client: Vec<u8>,
+}
+
+impl Session {
+    pub fn new(stream: TcpStream, server_config: &'static ServerConfig) -> Self {
         let iter = all::<MessageType>()
             .map::<(MessageType, PacketHandlerFn), _>(|t| (t, packet_handlers::not_set));
 
@@ -77,30 +85,22 @@ impl<'session_impl> Session<'session_impl> {
 
         Session {
             stream,
-            server_sequence_number: 0,
-            client_sequence_number: 0,
-
+            server_sequence_number: Arc::new(0.into()),
+            client_sequence_number: Arc::new(0.into()),
             server_config,
+            packet_handlers: Arc::new(packet_handlers.into()),
+
             algorithms: None,
             crypto: None,
-
-            packet_handlers,
             kex: KeyExchange::default(),
             user_name: None,
-            channels: HashMap::new(),
-
-            session_id: Vec::new(),
-            iv_client_server: Vec::new(),
-            iv_server_client: Vec::new(),
-            enc_key_client_server: Vec::new(),
-            enc_key_server_client: Vec::new(),
-            integrity_key_client_server: Vec::new(),
-            integrity_key_server_client: Vec::new(),
+            channels: Arc::new(Mutex::new(HashMap::new())),
+            secrets: None,
         }
     }
 
     /// This will handle all incoming packets, blocking this thread until disconnect.
-    pub fn start(&'session_impl mut self) -> Result<()> {
+    pub fn start(&mut self) -> Result<()> {
         info!(
             "Created new session for client on address {}",
             self.stream.peer_addr().unwrap()
@@ -125,18 +125,25 @@ impl<'session_impl> Session<'session_impl> {
                 self.disconnect(reason)?;
                 break;
             }
-            self.client_sequence_number = self.client_sequence_number.wrapping_add(1);
+            self.client_sequence_number.fetch_add(1, ORDERING);
         }
 
         Ok(())
     }
 
     pub fn server_sequence_number(&self) -> u32 {
-        self.server_sequence_number
+        self.server_sequence_number.load(ORDERING)
     }
 
     pub fn client_sequence_number(&self) -> u32 {
-        self.client_sequence_number
+        self.client_sequence_number.load(ORDERING)
+    }
+
+    pub fn set_packet_handler(&mut self, msg_type: MessageType, handler: PacketHandlerFn) {
+        self.packet_handlers
+            .lock()
+            .unwrap()
+            .insert(msg_type, handler);
     }
 
     /// Panics if algorithms have not been negotiated yet
@@ -147,9 +154,16 @@ impl<'session_impl> Session<'session_impl> {
     }
 
     /// Panics if algorithms have not been negotiated yet
-    pub fn crypto(&self) -> &Crypto {
+    pub fn crypto(&self) -> &Arc<Mutex<Crypto>> {
         self.crypto
             .as_ref()
+            .expect("Crypto not initialized yet, algorithms have not been negotiated")
+    }
+
+    /// Panics if algorithms have not been negotiated yet
+    pub fn crypto_mut(&mut self) -> &mut Arc<Mutex<Crypto>> {
+        self.crypto
+            .as_mut()
             .expect("Crypto not initialized yet, algorithms have not been negotiated")
     }
 
@@ -157,42 +171,48 @@ impl<'session_impl> Session<'session_impl> {
         &self.kex
     }
 
-    pub fn user_name(&self) -> String {
-        self.user_name.clone().expect("Userauth not completed yet")
+    /// Panics if user_name not set yet
+    pub fn user_name(&self) -> &Arc<String> {
+        self.user_name.as_ref().expect("User name not set yet")
     }
 
-    pub fn iv_client_server(&self) -> &Vec<u8> {
-        &self.iv_client_server
+    /// Panics if secrets not computed yet
+    pub fn secrets(&self) -> &Arc<Secrets> {
+        self.secrets.as_ref().expect("Secrets not computed yet")
     }
 
-    pub fn iv_server_client(&self) -> &Vec<u8> {
-        &self.iv_server_client
+    pub fn send_packet(&mut self, packet: &[u8]) -> Result<()> {
+        self.stream
+            .write_all(packet)
+            .context("Failed sending packet")?;
+        trace!("Packet sent");
+
+        self.server_sequence_number.fetch_add(1, ORDERING);
+
+        Ok(())
     }
 
-    pub fn enc_key_client_server(&self) -> &Vec<u8> {
-        &self.enc_key_client_server
-    }
+    pub fn try_clone(&self) -> Result<Self> {
+        Ok(Self {
+            stream: self.stream.try_clone()?,
+            server_sequence_number: self.server_sequence_number.clone(),
+            client_sequence_number: self.client_sequence_number.clone(),
+            server_config: self.server_config,
+            packet_handlers: self.packet_handlers.clone(),
 
-    pub fn enc_key_server_client(&self) -> &Vec<u8> {
-        &self.enc_key_server_client
-    }
-
-    pub fn integrity_key_server_client(&self) -> &Vec<u8> {
-        &self.integrity_key_server_client
-    }
-
-    pub fn integrity_key_client_server(&self) -> &Vec<u8> {
-        &self.integrity_key_client_server
-    }
-
-    pub fn set_packet_handler(&mut self, msg_type: MessageType, handler: PacketHandlerFn) {
-        self.packet_handlers.insert(msg_type, handler);
+            algorithms: self.algorithms.clone(),
+            crypto: self.crypto.clone(),
+            kex: self.kex.clone(),
+            user_name: self.user_name.clone(),
+            channels: self.channels.clone(),
+            secrets: self.secrets.clone(),
+        })
     }
 
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self, reader: &mut BufReader<TcpStream>) -> Result<String> {
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
-        self.server_sequence_number = 0; // Sequence number doesn't increment for ident exchange
+        self.server_sequence_number = Arc::new(0.into()); // Sequence number doesn't increment for ident exchange
 
         let mut client_ident = String::new();
         reader
@@ -233,13 +253,13 @@ impl<'session_impl> Session<'session_impl> {
         let packet = decode_packet(self, reader)?;
         let msg_type = packet.message_type()?;
         debug!(
-            "Received message of type = {:?}, server_sequence_number = {}, client_sequence_number = {}",
-            msg_type, self.server_sequence_number(), self.client_sequence_number()
+            "Received message of type = {:?}, server_sequence_number = {:?}, client_sequence_number = {:?}",
+            msg_type, self.server_sequence_number, self.client_sequence_number
         );
 
         let reader = PayloadReader::new(packet.payload());
-        let handler: Option<&PacketHandlerFn> = self.packet_handlers.get(&msg_type);
 
+        let handler = self.packet_handlers.lock().unwrap().get(&msg_type).copied();
         if let Some(handler) = handler {
             let args = PacketHandlerArgs {
                 reader,
@@ -261,17 +281,6 @@ impl<'session_impl> Session<'session_impl> {
         }
 
         Ok(None)
-    }
-
-    fn send_packet(&mut self, packet: &[u8]) -> Result<()> {
-        self.stream
-            .write_all(packet)
-            .context("Failed sending packet")?;
-        trace!("Packet sent");
-
-        self.server_sequence_number = self.server_sequence_number().wrapping_add(1);
-
-        Ok(())
     }
 
     // RFC 4253 § 11.1

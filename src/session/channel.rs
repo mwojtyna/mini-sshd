@@ -1,10 +1,12 @@
+use std::thread;
+
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
     decoding::PayloadReader,
     encoding::PacketBuilder,
     types::MessageType,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, trace};
 
 use super::Session;
@@ -26,7 +28,7 @@ macro_rules! reject {
     };
 }
 
-impl<'session_impl> Session<'session_impl> {
+impl Session {
     // RFC 4254 § 5.1
     pub fn open_channel(&mut self, reader: &mut PayloadReader) -> Result<()> {
         let request_type = reader.next_string_utf8()?;
@@ -53,8 +55,11 @@ impl<'session_impl> Session<'session_impl> {
         trace!("max_packet_size = {}", max_packet_size);
 
         let recipient_channel_num = sender_channel_num;
-        let channel = Channel::new(window_size, max_packet_size);
-        self.channels.insert(recipient_channel_num, channel);
+        let channel = Channel::new(recipient_channel_num, window_size, max_packet_size);
+        self.channels
+            .lock()
+            .unwrap()
+            .insert(recipient_channel_num, channel);
 
         debug!("Opened channel {}", sender_channel_num);
 
@@ -73,8 +78,11 @@ impl<'session_impl> Session<'session_impl> {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let user_name = self.user_name();
-        let channel = self.channels.get_mut(&recipient_chan_num);
+        let user_name = self.user_name().clone();
+
+        let channels = self.channels.clone();
+        let mut channels = channels.lock().unwrap();
+        let channel = channels.get_mut(&recipient_chan_num);
 
         if let Some(channel) = channel {
             // RFC 4254 § 5.4
@@ -86,7 +94,21 @@ impl<'session_impl> Session<'session_impl> {
 
             match request_type.as_str() {
                 ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
-                ChannelRequestType::SHELL => channel.shell(&user_name)?,
+                ChannelRequestType::SHELL => {
+                    let mut channel = channel.try_clone().context("Failed to clone channel")?;
+                    channel.shell(&user_name)?;
+
+                    let mut session = self.try_clone()?;
+                    thread::spawn::<_, Result<()>>(move || loop {
+                        let data = channel.read_terminal()?;
+                        let packet =
+                            PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, &session)
+                                .write_u32(recipient_chan_num)
+                                .write_string(&data)
+                                .build()?;
+                        channel.send_packet(&packet, &mut session)?;
+                    });
+                }
 
                 _ => {
                     reject!(
@@ -115,7 +137,7 @@ impl<'session_impl> Session<'session_impl> {
                 format!("Channel num '{}' not found", recipient_chan_num),
                 recipient_chan_num.to_string()
             );
-        }
+        };
 
         Ok(())
     }

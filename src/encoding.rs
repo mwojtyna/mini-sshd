@@ -21,15 +21,12 @@ const BLOCK_SIZE_NON_ENCRYPTED: usize = 8;
 
 pub struct PacketBuilder<'packet_builder> {
     payload: Vec<u8>,
-    session: &'packet_builder Session<'packet_builder>,
+    session: &'packet_builder Session,
 }
 
 #[allow(dead_code)]
 impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
-    pub fn new(
-        message_type: MessageType,
-        session: &'packet_builder_impl Session<'packet_builder_impl>,
-    ) -> Self {
+    pub fn new(message_type: MessageType, session: &'packet_builder_impl Session) -> Self {
         PacketBuilder {
             payload: vec![message_type as u8],
             session,
@@ -81,12 +78,13 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
         packet.extend(random_padding);
 
         if self.session.kex().finished {
-            let mut encrypter = self.session.crypto().encrypter().borrow_mut();
+            let crypto = self.session.crypto().lock().unwrap();
+            let mut encrypter = crypto.encrypter().borrow_mut();
             let algos = self.session.algorithms();
 
             // Compute mac for unencrypted packet
-            let mac = self.session.crypto().compute_mac(
-                self.session.integrity_key_server_client(),
+            let mac = crypto.compute_mac(
+                &self.session.secrets().integrity_key_server_client,
                 self.session.server_sequence_number(),
                 &packet,
             )?;

@@ -224,9 +224,7 @@ fn connect() -> Result<()> {
             session.start()?;
             Ok(())
         });
-
-        // TODO: Join on seperate thread
-        match handle.join() {
+        thread::spawn(move || match handle.join() {
             Ok(val) => match val {
                 Ok(()) => debug!("Session for address {} finished successfully", client_addr),
                 Err(err) => error!(
@@ -235,7 +233,7 @@ fn connect() -> Result<()> {
                 ),
             },
             Err(_) => error!("Session for address {} panicked", client_addr),
-        }
+        });
     }
 
     Ok(())

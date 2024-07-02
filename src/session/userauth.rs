@@ -37,7 +37,7 @@ def_enum!(pub AuthenticationMethod => &'static str {
     NONE => "none",
 });
 
-impl<'session_impl> Session<'session_impl> {
+impl Session {
     // RFC 4252
     pub fn userauth(&mut self, reader: &mut PayloadReader) -> Result<()> {
         debug!("--- BEGIN USERAUTH REQUEST ---");
@@ -63,7 +63,7 @@ impl<'session_impl> Session<'session_impl> {
             }
         }
 
-        self.user_name = Some(user_name);
+        self.user_name = Some(user_name.into());
 
         debug!("--- END USERAUTH REQUEST ---");
         Ok(())
@@ -159,7 +159,7 @@ impl<'session_impl> Session<'session_impl> {
         public_key_blob: Vec<u8>,
     ) -> Vec<u8> {
         let mut digest_data = Vec::with_capacity(
-            (STRING_LENGTH_SIZE + self.session_id.len())
+            (STRING_LENGTH_SIZE + self.secrets().session_id.len())
                 + size_of::<u8>()
                 + (STRING_LENGTH_SIZE + user_name.len())
                 + (STRING_LENGTH_SIZE + service_name.len())
@@ -168,7 +168,7 @@ impl<'session_impl> Session<'session_impl> {
                 + (STRING_LENGTH_SIZE + public_key_alg_name.len())
                 + (STRING_LENGTH_SIZE + public_key_blob.len()),
         );
-        digest_data.extend(encode_string(&self.session_id));
+        digest_data.extend(encode_string(&self.secrets().session_id));
         digest_data.push(MessageType::SSH_MSG_USERAUTH_REQUEST as u8);
         digest_data.extend(encode_string(user_name.as_bytes()));
         digest_data.extend(encode_string(service_name.as_bytes()));

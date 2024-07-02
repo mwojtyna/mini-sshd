@@ -1,4 +1,7 @@
-use std::fmt::Debug;
+use std::{
+    fmt::Debug,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{bail, Context, Result};
 use indexmap::{IndexMap, IndexSet};
@@ -106,7 +109,7 @@ pub struct Algorithms {
     pub languages_server_to_client: String,
 }
 
-impl Session<'_> {
+impl Session {
     // RFC 4253 § 7
     pub fn algorithm_negotiation(
         &mut self,
@@ -136,12 +139,13 @@ impl Session<'_> {
         self.send_packet(&server_algorithms_packet)
             .context("Failed writing server algorithms packet")?;
 
-        let negotiated =
-            self.negotiate_algorithms(&client_algorithms, &self.server_config.algorithms)?;
+        let negotiated = Arc::new(
+            self.negotiate_algorithms(&client_algorithms, &self.server_config.algorithms)?,
+        );
         debug!("negotiated_algorithms = {:#?}", negotiated);
 
         self.algorithms = Some(negotiated.clone());
-        self.crypto = Some(Crypto::new(negotiated));
+        self.crypto = Some(Arc::new(Mutex::new(Crypto::new(negotiated))));
 
         debug!("--- END ALGORITHM NEGOTIATION ---");
         Ok(())
