@@ -189,6 +189,17 @@ impl<'session_impl> Session<'session_impl> {
         self.packet_handlers.insert(msg_type, handler);
     }
 
+    pub fn send_packet(&mut self, packet: &[u8]) -> Result<()> {
+        self.stream
+            .write_all(packet)
+            .context("Failed sending packet")?;
+        trace!("Packet sent");
+
+        self.server_sequence_number = self.server_sequence_number().wrapping_add(1);
+
+        Ok(())
+    }
+
     // RFC 4253 § 4.2
     fn ident_exchange(&mut self, reader: &mut BufReader<TcpStream>) -> Result<String> {
         self.send_packet(format!("{}\r\n", self.server_config.ident_string).as_bytes())?;
@@ -261,17 +272,6 @@ impl<'session_impl> Session<'session_impl> {
         }
 
         Ok(None)
-    }
-
-    fn send_packet(&mut self, packet: &[u8]) -> Result<()> {
-        self.stream
-            .write_all(packet)
-            .context("Failed sending packet")?;
-        trace!("Packet sent");
-
-        self.server_sequence_number = self.server_sequence_number().wrapping_add(1);
-
-        Ok(())
     }
 
     // RFC 4253 § 11.1

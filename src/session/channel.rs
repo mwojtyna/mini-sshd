@@ -4,7 +4,7 @@ use crate::{
     encoding::PacketBuilder,
     types::MessageType,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use log::{debug, trace};
 
 use super::Session;
@@ -53,7 +53,7 @@ impl<'session_impl> Session<'session_impl> {
         trace!("max_packet_size = {}", max_packet_size);
 
         let recipient_channel_num = sender_channel_num;
-        let channel = Channel::new(window_size, max_packet_size);
+        let channel = Channel::new(recipient_channel_num, window_size, max_packet_size);
         self.channels.insert(recipient_channel_num, channel);
 
         debug!("Opened channel {}", sender_channel_num);
@@ -86,7 +86,21 @@ impl<'session_impl> Session<'session_impl> {
 
             match request_type.as_str() {
                 ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
-                ChannelRequestType::SHELL => channel.shell(&user_name)?,
+                ChannelRequestType::SHELL => {
+                    let mut channel = channel.try_clone().context("Failed to clone channel")?;
+                    channel.shell(&user_name)?;
+
+                    // TODO: In another thread
+                    // Maybe guard session with Mutex?
+                    loop {
+                        let data = channel.read_terminal()?;
+                        let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, self)
+                            .write_u32(recipient_chan_num)
+                            .write_string(&data)
+                            .build()?;
+                        channel.send_packet(&packet, self)?;
+                    }
+                }
 
                 _ => {
                     reject!(
@@ -115,7 +129,7 @@ impl<'session_impl> Session<'session_impl> {
                 format!("Channel num '{}' not found", recipient_chan_num),
                 recipient_chan_num.to_string()
             );
-        }
+        };
 
         Ok(())
     }
