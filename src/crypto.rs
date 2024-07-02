@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::{cell::RefCell, sync::Arc};
 
 use anyhow::{bail, Context, Result};
 use openssl::{
@@ -25,11 +25,11 @@ pub struct EcHostKey {
 pub struct Crypto {
     encrypter: Option<RefCell<Crypter>>,
     decrypter: Option<RefCell<Crypter>>,
-    algorithms: Algorithms,
+    algorithms: Arc<Algorithms>,
 }
 
 impl Crypto {
-    pub fn new(algorithms: Algorithms) -> Self {
+    pub fn new(algorithms: Arc<Algorithms>) -> Self {
         Crypto {
             encrypter: None,
             decrypter: None,

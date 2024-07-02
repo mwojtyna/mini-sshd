@@ -36,8 +36,10 @@ impl Session {
             &host_key.public_key,
         )?;
 
-        let (k, q_s) = self
-            .crypto()
+        let crypto = self.crypto().clone();
+        let crypto = crypto.lock().unwrap();
+
+        let (k, q_s) = crypto
             .compute_shared_secret(&q_c)
             .context("Failed computing shared secret")?;
 
@@ -52,8 +54,7 @@ impl Session {
             &k,
         )?;
 
-        let (hash, signed_exchange_hash) = self
-            .crypto()
+        let (hash, signed_exchange_hash) = crypto
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
             .context("Failed to hash and sign")?;
 

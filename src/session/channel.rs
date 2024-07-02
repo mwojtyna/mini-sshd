@@ -54,7 +54,10 @@ impl Session {
 
         let recipient_channel_num = sender_channel_num;
         let channel = Channel::new(recipient_channel_num, window_size, max_packet_size);
-        self.channels.insert(recipient_channel_num, channel);
+        self.channels
+            .lock()
+            .unwrap()
+            .insert(recipient_channel_num, channel);
 
         debug!("Opened channel {}", sender_channel_num);
 
@@ -73,8 +76,11 @@ impl Session {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let user_name = self.user_name();
-        let channel = self.channels.get_mut(&recipient_chan_num);
+        let user_name = self.user_name().clone();
+
+        let channels = self.channels.clone();
+        let mut channels = channels.lock().unwrap();
+        let channel = channels.get_mut(&recipient_chan_num);
 
         if let Some(channel) = channel {
             // RFC 4254 § 5.4
@@ -90,16 +96,16 @@ impl Session {
                     let mut channel = channel.try_clone().context("Failed to clone channel")?;
                     channel.shell(&user_name)?;
 
-                    // TODO: In another thread
-                    // Maybe guard session with Mutex?
-                    loop {
+                    let mut session = self.try_clone()?;
+                    std::thread::spawn::<_, Result<()>>(move || loop {
                         let data = channel.read_terminal()?;
-                        let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, self)
-                            .write_u32(recipient_chan_num)
-                            .write_string(&data)
-                            .build()?;
-                        channel.send_packet(&packet, self)?;
-                    }
+                        let packet =
+                            PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, &session)
+                                .write_u32(recipient_chan_num)
+                                .write_string(&data)
+                                .build()?;
+                        channel.send_packet(&packet, &mut session)?;
+                    });
                 }
 
                 _ => {

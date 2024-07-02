@@ -175,7 +175,8 @@ fn decode_packet_encrypted(
         .details
         .block_size;
 
-    let mut decrypter = session.crypto().decrypter().borrow_mut();
+    let crypto = session.crypto().lock().unwrap();
+    let mut decrypter = crypto.decrypter().borrow_mut();
 
     // Read first block
     let mut first_block = vec![0u8; block_size];
@@ -217,9 +218,9 @@ fn decode_packet_encrypted(
     let mut mac = vec![0u8; mac_len];
     reader.read_exact(&mut mac)?;
 
-    let valid = session.crypto().verify_mac(
+    let valid = crypto.verify_mac(
         session.client_sequence_number(),
-        session.integrity_key_client_server(),
+        &session.secrets().integrity_key_client_server,
         // For some reason, this has to be encoded as string
         &encode_string(&packet_dec),
         &mac,
