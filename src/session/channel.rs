@@ -1,4 +1,4 @@
-use std::thread;
+use std::{fs::File, io::BufReader, thread};
 
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
@@ -99,8 +99,12 @@ impl Session {
                     channel.shell(&user_name)?;
 
                     let mut session = self.try_clone().context("Failed to clone session")?;
+
+                    let file = File::from(channel.pty_fds().master.try_clone()?);
+                    let mut reader = BufReader::new(file);
+
                     thread::spawn::<_, Result<()>>(move || loop {
-                        let data = channel.read_terminal()?;
+                        let data = channel.read_terminal(&mut reader)?;
                         let packet =
                             PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, &session)
                                 .write_u32(recipient_chan_num)
@@ -127,6 +131,33 @@ impl Session {
                     .write_u32(recipient_chan_num)
                     .build()?;
                 self.send_packet(&packet)?;
+            }
+        } else {
+            reject!(
+                MessageType::SSH_MSG_CHANNEL_FAILURE,
+                self,
+                recipient_chan_num,
+                ChannelOpenFailureReason::SSH_OPEN_CONNECT_FAILED,
+                format!("Channel num '{}' not found", recipient_chan_num),
+                recipient_chan_num.to_string()
+            );
+        };
+
+        Ok(())
+    }
+
+    pub fn channel_data(&mut self, reader: &mut PayloadReader) -> Result<()> {
+        let recipient_chan_num = reader.next_u32()?;
+        trace!("channel_number = {}", recipient_chan_num);
+
+        let channels = self.channels.clone();
+        let mut channels = channels.lock().unwrap();
+        let channel = channels.get_mut(&recipient_chan_num);
+
+        if let Some(channel) = channel {
+            if channel.pty_fds.is_some() {
+                let data = reader.next_string()?;
+                channel.write_terminal(&data)?;
             }
         } else {
             reject!(

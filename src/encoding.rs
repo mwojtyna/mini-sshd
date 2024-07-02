@@ -78,8 +78,8 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
         packet.extend(random_padding);
 
         if self.session.kex().finished {
-            let crypto = self.session.crypto().lock().unwrap();
-            let mut encrypter = crypto.encrypter().borrow_mut();
+            let crypto = self.session.crypto().read().unwrap();
+            let mut encrypter = crypto.encrypter().write().unwrap();
             let algos = self.session.algorithms();
 
             // Compute mac for unencrypted packet

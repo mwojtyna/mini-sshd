@@ -1,6 +1,6 @@
 use std::{
     fmt::Debug,
-    sync::{Arc, Mutex},
+    sync::{Arc, RwLock},
 };
 
 use anyhow::{bail, Context, Result};
@@ -145,7 +145,7 @@ impl Session {
         debug!("negotiated_algorithms = {:#?}", negotiated);
 
         self.algorithms = Some(negotiated.clone());
-        self.crypto = Some(Arc::new(Mutex::new(Crypto::new(negotiated))));
+        self.crypto = Some(Arc::new(RwLock::new(Crypto::new(negotiated))));
 
         debug!("--- END ALGORITHM NEGOTIATION ---");
         Ok(())

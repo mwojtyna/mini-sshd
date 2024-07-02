@@ -37,7 +37,7 @@ impl Session {
         )?;
 
         let crypto = self.crypto().clone();
-        let crypto = crypto.lock().unwrap();
+        let crypto = crypto.read().unwrap();
 
         let (k, q_s) = crypto
             .compute_shared_secret(&q_c)

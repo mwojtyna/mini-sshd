@@ -63,7 +63,7 @@ impl Session {
         trace!("secrets = {:02x?}", secrets);
         self.secrets = Some(secrets.into());
         self.crypto_mut()
-            .lock()
+            .write()
             .unwrap()
             .init_crypters(encrypter, decrypter);
 

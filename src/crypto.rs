@@ -1,4 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
+use std::sync::{Arc, RwLock};
 
 use anyhow::{bail, Context, Result};
 use openssl::{
@@ -23,8 +23,8 @@ pub struct EcHostKey {
 }
 
 pub struct Crypto {
-    encrypter: Option<RefCell<Crypter>>,
-    decrypter: Option<RefCell<Crypter>>,
+    encrypter: Option<RwLock<Crypter>>,
+    decrypter: Option<RwLock<Crypter>>,
     algorithms: Arc<Algorithms>,
 }
 
@@ -38,17 +38,17 @@ impl Crypto {
     }
 
     pub fn init_crypters(&mut self, encrypter: Crypter, decrypter: Crypter) {
-        self.encrypter = Some(RefCell::new(encrypter));
-        self.decrypter = Some(RefCell::new(decrypter));
+        self.encrypter = Some(RwLock::new(encrypter));
+        self.decrypter = Some(RwLock::new(decrypter));
     }
 
     /// Panics if key exchange hasn't been done yet
-    pub fn encrypter(&self) -> &RefCell<Crypter> {
+    pub fn encrypter(&self) -> &RwLock<Crypter> {
         self.encrypter.as_ref().expect("Encrypter not initialized")
     }
 
     /// Panics if key exchange hasn't been done yet
-    pub fn decrypter(&self) -> &RefCell<Crypter> {
+    pub fn decrypter(&self) -> &RwLock<Crypter> {
         self.decrypter.as_ref().expect("Decrypter not initialized")
     }
 

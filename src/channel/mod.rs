@@ -32,12 +32,12 @@ pub struct Channel {
     num: u32,
     window_size: u32,
     max_packet_size: u32,
-    pty_fds: Option<PtyPair>,
+    pub pty_fds: Option<PtyPair>,
 }
 
 pub struct PtyPair {
-    master: OwnedFd,
-    slave: OwnedFd,
+    pub master: OwnedFd,
+    pub slave: OwnedFd,
 }
 
 impl From<OpenptyResult> for PtyPair {
@@ -78,7 +78,7 @@ impl Channel {
         Ok(())
     }
 
-    fn pty_fds(&self) -> &PtyPair {
+    pub fn pty_fds(&self) -> &PtyPair {
         self.pty_fds.as_ref().expect("Pty not initialized yet")
     }
 

@@ -4,7 +4,7 @@ use std::{
     net::TcpStream,
     sync::{
         atomic::{AtomicU32, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
     },
 };
 
@@ -42,7 +42,7 @@ pub struct Session {
     packet_handlers: Arc<Mutex<HashMap<MessageType, PacketHandlerFn>>>,
 
     algorithms: Option<Arc<Algorithms>>,
-    crypto: Option<Arc<Mutex<Crypto>>>,
+    crypto: Option<Arc<RwLock<Crypto>>>,
     kex: KeyExchange,
     user_name: Option<Arc<String>>,
     channels: Arc<Mutex<HashMap<u32, Channel>>>,
@@ -154,14 +154,14 @@ impl Session {
     }
 
     /// Panics if algorithms have not been negotiated yet
-    pub fn crypto(&self) -> &Arc<Mutex<Crypto>> {
+    pub fn crypto(&self) -> &Arc<RwLock<Crypto>> {
         self.crypto
             .as_ref()
             .expect("Crypto not initialized yet, algorithms have not been negotiated")
     }
 
     /// Panics if algorithms have not been negotiated yet
-    pub fn crypto_mut(&mut self) -> &mut Arc<Mutex<Crypto>> {
+    pub fn crypto_mut(&mut self) -> &mut Arc<RwLock<Crypto>> {
         self.crypto
             .as_mut()
             .expect("Crypto not initialized yet, algorithms have not been negotiated")

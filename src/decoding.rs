@@ -175,8 +175,8 @@ fn decode_packet_encrypted(
         .details
         .block_size;
 
-    let crypto = session.crypto().lock().unwrap();
-    let mut decrypter = crypto.decrypter().borrow_mut();
+    let crypto = session.crypto().read().unwrap();
+    let mut decrypter = crypto.decrypter().write().unwrap();
 
     // Read first block
     let mut first_block = vec![0u8; block_size];

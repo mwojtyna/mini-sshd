@@ -1,4 +1,6 @@
 use std::{
+    fs::File,
+    io::{BufReader, Read},
     os::{
         fd::{AsFd, AsRawFd, FromRawFd},
         unix::process::CommandExt,
@@ -21,7 +23,7 @@ use nix::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
     },
-    unistd::{read, setsid, User},
+    unistd::{setsid, write, User},
 };
 use num_traits::FromPrimitive;
 
@@ -127,12 +129,18 @@ impl Channel {
         Ok(())
     }
 
-    pub fn read_terminal(&self) -> Result<Vec<u8>> {
-        let fd = self.pty_fds().master.as_raw_fd();
-        let mut buf = vec![0; 1024];
-        let amount = read(fd, &mut buf)?;
+    pub fn read_terminal(&self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
+        let mut buf = vec![0; self.max_packet_size as usize - 1024];
+        let amount = reader.read(&mut buf)?;
 
         Ok(buf[..amount].to_vec())
+    }
+
+    pub fn write_terminal(&mut self, data: &[u8]) -> Result<()> {
+        let fd = &self.pty_fds().master;
+        write(fd, data)?;
+
+        Ok(())
     }
 }
 
