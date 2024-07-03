@@ -96,7 +96,7 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
                 vec![0u8; PACKET_LENGTH_SIZE + packet_length as usize + mac_length];
 
             // Encrypt packet
-            encrypter.update(&packet, &mut packet_enc)?;
+            encrypter.update(&packet, &mut packet_enc[..packet.len()])?;
 
             // Overwrite empty space with mac
             packet_enc[packet.len()..].copy_from_slice(&mac);

@@ -1,11 +1,17 @@
-use std::os::fd::OwnedFd;
+use std::{
+    os::fd::OwnedFd,
+    sync::{
+        atomic::{AtomicU32, Ordering},
+        Arc,
+    },
+};
 
 use anyhow::{bail, Result};
 use log::debug;
 use nix::pty::OpenptyResult;
 use terminal::cloexec;
 
-use crate::{def_enum, session::Session};
+use crate::{def_enum, encoding::PacketBuilder, session::Session, types::MessageType};
 
 pub mod terminal;
 
@@ -28,11 +34,15 @@ pub enum ChannelOpenFailureReason {
     SSH_OPEN_RESOURCE_SHORTAGE = 4,
 }
 
+const ORDERING: Ordering = Ordering::Relaxed;
+
 pub struct Channel {
-    num: u32,
-    window_size: u32,
-    max_packet_size: u32,
     pub pty_fds: Option<PtyPair>,
+
+    num: u32,
+    window_size: Arc<AtomicU32>,
+    initial_window_size: u32,
+    max_packet_size: u32,
 }
 
 pub struct PtyPair {
@@ -53,7 +63,8 @@ impl Channel {
     pub fn new(num: u32, window_size: u32, max_packet_size: u32) -> Self {
         Channel {
             num,
-            window_size,
+            window_size: Arc::new(window_size.into()),
+            initial_window_size: window_size,
             max_packet_size,
             pty_fds: None,
         }
@@ -68,12 +79,46 @@ impl Channel {
             );
         }
 
+        if self.window_size() < packet.len() as u32 {
+            let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_WINDOW_ADJUST, session)
+                .write_u32(self.num)
+                .write_u32(self.initial_window_size)
+                .build()?;
+            session.send_packet(&packet)?;
+            self.increase_window_size(self.initial_window_size)?;
+        }
+
         session.send_packet(packet)?;
-        self.window_size -= packet.len() as u32;
+        self.decrease_window_size(packet.len() as u32);
+
         debug!(
-            "Sent packet from channel {}, window_size reduced to {}",
+            "Sent packet from channel {}, window_size = {:?}",
             self.num, self.window_size
         );
+
+        Ok(())
+    }
+
+    pub fn window_size(&self) -> u32 {
+        self.window_size.load(ORDERING)
+    }
+
+    pub fn decrease_window_size(&mut self, size: u32) {
+        if self.window_size() > size {
+            self.window_size.fetch_sub(size, ORDERING);
+        }
+    }
+
+    pub fn increase_window_size(&mut self, size: u32) -> Result<()> {
+        let prev = self.window_size();
+        self.window_size.fetch_add(size, ORDERING);
+
+        if self.window_size() < prev {
+            bail!(
+                "Channel {} window overflow after increasing window size",
+                self.num
+            );
+        }
 
         Ok(())
     }
@@ -92,7 +137,8 @@ impl Channel {
 
         let clone = Channel {
             num: self.num,
-            window_size: self.window_size,
+            window_size: self.window_size.clone(),
+            initial_window_size: self.initial_window_size,
             max_packet_size: self.max_packet_size,
             pty_fds: Some(pty_fds),
         };

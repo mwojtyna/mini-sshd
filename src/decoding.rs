@@ -130,7 +130,7 @@ impl DecodedPacket {
         without_msg_type.to_vec()
     }
 
-    pub fn payload_with_msg_type(&self) -> &Vec<u8> {
+    pub fn payload_with_msg_type(&self) -> &[u8] {
         &self.payload
     }
 }

@@ -130,7 +130,7 @@ impl Channel {
     }
 
     pub fn read_terminal(&self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
-        let mut buf = vec![0; self.max_packet_size as usize - 1024];
+        let mut buf = vec![0; self.max_packet_size as usize - 512]; // 0.5KB less than max packet size to account for packet length, padding
         let amount = reader.read(&mut buf)?;
 
         Ok(buf[..amount].to_vec())

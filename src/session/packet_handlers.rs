@@ -117,10 +117,19 @@ pub const channel_request: PacketHandlerFn = |session, mut args| {
     session.channel_request(&mut args.reader)?;
 
     session.set_packet_handler(MessageType::SSH_MSG_CHANNEL_DATA, channel_data);
+    session.set_packet_handler(
+        MessageType::SSH_MSG_CHANNEL_WINDOW_ADJUST,
+        channel_window_adjust,
+    );
     Ok(None)
 };
 
 pub const channel_data: PacketHandlerFn = |session, mut args| {
     session.channel_data(&mut args.reader)?;
+    Ok(None)
+};
+
+pub const channel_window_adjust: PacketHandlerFn = |session, mut args| {
+    session.channel_window_adjust(&mut args.reader)?;
     Ok(None)
 };

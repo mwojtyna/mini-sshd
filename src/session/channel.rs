@@ -172,4 +172,30 @@ impl Session {
 
         Ok(())
     }
+
+    pub fn channel_window_adjust(&mut self, reader: &mut PayloadReader) -> Result<()> {
+        let recipient_chan_num = reader.next_u32()?;
+        trace!("channel_number = {}", recipient_chan_num);
+
+        let channels = self.channels.clone();
+        let mut channels = channels.lock().unwrap();
+        let channel = channels.get_mut(&recipient_chan_num);
+
+        if let Some(channel) = channel {
+            let bytes_to_add = reader.next_u32()?;
+            debug!("bytes_to_add = {}", bytes_to_add);
+            channel.increase_window_size(bytes_to_add)?;
+        } else {
+            reject!(
+                MessageType::SSH_MSG_CHANNEL_FAILURE,
+                self,
+                recipient_chan_num,
+                ChannelOpenFailureReason::SSH_OPEN_CONNECT_FAILED,
+                format!("Channel num '{}' not found", recipient_chan_num),
+                recipient_chan_num.to_string()
+            );
+        };
+
+        Ok(())
+    }
 }
