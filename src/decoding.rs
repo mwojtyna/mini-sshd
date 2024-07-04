@@ -31,7 +31,7 @@ pub struct PayloadReader {
 #[allow(dead_code)]
 impl PayloadReader {
     pub fn new(payload: Vec<u8>) -> Self {
-        PayloadReader {
+        Self {
             iter: payload.into_iter(),
         }
     }
@@ -137,7 +137,7 @@ impl DecodedPacket {
 
 // RFC 4253 § 6
 pub fn decode_packet(
-    session: &mut Session,
+    session: &Session,
     reader: &mut BufReader<TcpStream>,
 ) -> Result<DecodedPacket> {
     trace!(

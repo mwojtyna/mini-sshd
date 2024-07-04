@@ -30,7 +30,7 @@ pub struct Crypto {
 
 impl Crypto {
     pub fn new(algorithms: Arc<Algorithms>) -> Self {
-        Crypto {
+        Self {
             encrypter: None,
             decrypter: None,
             algorithms,

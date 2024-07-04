@@ -15,7 +15,7 @@ impl Session {
         let k = k.as_slice();
         let h = h.as_slice();
 
-        let algos = self.algorithms().clone();
+        let algos = self.algorithms();
         let hash_algo = algos.kex_algorithm.details.hash;
         let iv_len = algos
             .encryption_algorithms_client_to_server

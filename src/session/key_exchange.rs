@@ -36,8 +36,7 @@ impl Session {
             &host_key.public_key,
         )?;
 
-        let crypto = self.crypto().clone();
-        let crypto = crypto.read().unwrap();
+        let crypto = self.crypto().read().unwrap();
 
         let (k, q_s) = crypto
             .compute_shared_secret(&q_c)
@@ -65,6 +64,8 @@ impl Session {
             .write_string(&q_s)
             .write_string(&signature_enc)
             .build()?;
+
+        drop(crypto);
         self.send_packet(&packet)?;
 
         debug!("--- END KEY EXCHANGE ---");

@@ -79,7 +79,7 @@ pub struct Algorithm<D> {
 }
 
 impl<D> Algorithm<D> {
-    pub fn new(name: String, details: D) -> Self {
+    pub const fn new(name: String, details: D) -> Self {
         Self { name, details }
     }
 }

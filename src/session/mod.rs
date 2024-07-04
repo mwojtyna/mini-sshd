@@ -83,7 +83,7 @@ impl Session {
         );
         packet_handlers.insert(MessageType::SSH_MSG_DEBUG, packet_handlers::ignore);
 
-        Session {
+        Self {
             stream,
             server_sequence_number: Arc::new(0.into()),
             client_sequence_number: Arc::new(0.into()),
@@ -167,7 +167,7 @@ impl Session {
             .expect("Crypto not initialized yet, algorithms have not been negotiated")
     }
 
-    pub fn kex(&self) -> &KeyExchange {
+    pub const fn kex(&self) -> &KeyExchange {
         &self.kex
     }
 

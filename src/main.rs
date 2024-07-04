@@ -1,3 +1,12 @@
+#![warn(clippy::use_self)]
+#![warn(clippy::missing_const_for_fn)]
+#![warn(clippy::redundant_clone)]
+#![warn(clippy::cloned_instead_of_copied)]
+#![warn(clippy::needless_collect)]
+#![warn(clippy::nursery)]
+#![allow(clippy::significant_drop_tightening)]
+#![allow(clippy::derive_partial_eq_without_eq)]
+
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
@@ -142,6 +151,7 @@ fn main() -> Result<()> {
     let _ = SERVER_CONFIG.set(ServerConfig {
         ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
         algorithms: algorithms.clone(),
+        // TODO: Save host keys to disk on first start
         host_key: hashmap! {
             HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve)?,
             HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve)?,

@@ -78,8 +78,6 @@ impl Session {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let user_name = self.user_name().clone();
-
         let channels = self.channels.clone();
         let mut channels = channels.lock().unwrap();
         let channel = channels.get_mut(&recipient_chan_num);
@@ -95,8 +93,10 @@ impl Session {
             match request_type.as_str() {
                 ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
                 ChannelRequestType::SHELL => {
+                    let user_name = self.user_name();
+
                     let mut channel = channel.try_clone().context("Failed to clone channel")?;
-                    channel.shell(&user_name)?;
+                    channel.shell(user_name)?;
 
                     let mut session = self.try_clone().context("Failed to clone session")?;
 
@@ -112,6 +112,9 @@ impl Session {
                                 .build()?;
                         channel.send_packet(&packet, &mut session)?;
                     });
+                }
+                ChannelRequestType::WINDOW_CHANGE => {
+                    todo!()
                 }
 
                 _ => {
@@ -150,8 +153,7 @@ impl Session {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let channels = self.channels.clone();
-        let mut channels = channels.lock().unwrap();
+        let mut channels = self.channels.lock().unwrap();
         let channel = channels.get_mut(&recipient_chan_num);
 
         if let Some(channel) = channel {
@@ -160,6 +162,7 @@ impl Session {
                 channel.write_terminal(&data)?;
             }
         } else {
+            drop(channels);
             reject!(
                 MessageType::SSH_MSG_CHANNEL_FAILURE,
                 self,
@@ -177,8 +180,7 @@ impl Session {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let channels = self.channels.clone();
-        let mut channels = channels.lock().unwrap();
+        let mut channels = self.channels.lock().unwrap();
         let channel = channels.get_mut(&recipient_chan_num);
 
         if let Some(channel) = channel {
@@ -186,6 +188,7 @@ impl Session {
             debug!("bytes_to_add = {}", bytes_to_add);
             channel.increase_window_size(bytes_to_add)?;
         } else {
+            drop(channels);
             reject!(
                 MessageType::SSH_MSG_CHANNEL_FAILURE,
                 self,

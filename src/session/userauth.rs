@@ -128,8 +128,8 @@ impl Session {
             let digest_data = self.concat_digest_data(
                 user_name,
                 service_name,
-                public_key_alg_name.clone(),
-                public_key_blob,
+                &public_key_alg_name,
+                &public_key_blob,
             );
             let digest = Crypto::hash(&digest_data, client_public_key_algo.hash)?;
 
@@ -155,8 +155,8 @@ impl Session {
         &mut self,
         user_name: &str,
         service_name: &str,
-        public_key_alg_name: String,
-        public_key_blob: Vec<u8>,
+        public_key_alg_name: &str,
+        public_key_blob: &[u8],
     ) -> Vec<u8> {
         let mut digest_data = Vec::with_capacity(
             (STRING_LENGTH_SIZE + self.secrets().session_id.len())
@@ -175,7 +175,7 @@ impl Session {
         digest_data.extend(encode_string(AuthenticationMethod::PUBLIC_KEY.as_bytes()));
         digest_data.push(true as u8);
         digest_data.extend(encode_string(public_key_alg_name.as_bytes()));
-        digest_data.extend(encode_string(&public_key_blob));
+        digest_data.extend(encode_string(public_key_blob));
         digest_data
     }
 }

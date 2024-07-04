@@ -52,7 +52,7 @@ pub struct PtyPair {
 
 impl From<OpenptyResult> for PtyPair {
     fn from(value: OpenptyResult) -> Self {
-        PtyPair {
+        Self {
             master: value.master,
             slave: value.slave,
         }
@@ -61,7 +61,7 @@ impl From<OpenptyResult> for PtyPair {
 
 impl Channel {
     pub fn new(num: u32, window_size: u32, max_packet_size: u32) -> Self {
-        Channel {
+        Self {
             num,
             window_size: Arc::new(window_size.into()),
             initial_window_size: window_size,
@@ -135,13 +135,12 @@ impl Channel {
         cloexec(&pty_fds.master)?;
         cloexec(&pty_fds.slave)?;
 
-        let clone = Channel {
+        Ok(Self {
             num: self.num,
             window_size: self.window_size.clone(),
             initial_window_size: self.initial_window_size,
             max_packet_size: self.max_packet_size,
             pty_fds: Some(pty_fds),
-        };
-        Ok(clone)
+        })
     }
 }

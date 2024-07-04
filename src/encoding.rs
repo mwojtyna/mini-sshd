@@ -168,13 +168,13 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
     }
 }
 
-pub fn encode_bool(value: bool) -> u8 {
+pub const fn encode_bool(value: bool) -> u8 {
     match value {
         false => 0,
         true => 1,
     }
 }
-pub fn encode_u32(value: u32) -> [u8; 4] {
+pub const fn encode_u32(value: u32) -> [u8; 4] {
     value.to_be_bytes()
 }
 

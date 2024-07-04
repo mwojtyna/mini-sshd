@@ -154,9 +154,7 @@ pub fn cloexec<F: AsRawFd>(fd: &F) -> Result<()> {
 }
 
 fn decode_terminal_modes(encoded_modes: &[u8]) -> Result<Vec<TerminalMode>> {
-    let modes_len = all::<TerminalOpCode>()
-        .collect::<Vec<TerminalOpCode>>()
-        .len();
+    let modes_len = all::<TerminalOpCode>().count();
     let mut modes = Vec::with_capacity(modes_len);
     let reader = &mut encoded_modes.iter();
 
@@ -179,7 +177,7 @@ fn decode_terminal_modes(encoded_modes: &[u8]) -> Result<Vec<TerminalMode>> {
     Ok(modes)
 }
 
-fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &Vec<TerminalMode>) -> Result<()> {
+fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &[TerminalMode]) -> Result<()> {
     let mut termios = tcgetattr(fd)?;
 
     for mode in modes {
