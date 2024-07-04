@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    net::TcpStream,
+    net::{Shutdown, TcpStream},
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc, Mutex, RwLock,
@@ -36,6 +36,7 @@ const ORDERING: Ordering = Ordering::Relaxed;
 
 pub struct Session {
     stream: TcpStream,
+    is_closed: bool,
     server_sequence_number: Arc<AtomicU32>,
     client_sequence_number: Arc<AtomicU32>,
     server_config: &'static ServerConfig,
@@ -85,6 +86,7 @@ impl Session {
 
         Self {
             stream,
+            is_closed: false,
             server_sequence_number: Arc::new(0.into()),
             client_sequence_number: Arc::new(0.into()),
             server_config,
@@ -118,6 +120,14 @@ impl Session {
         );
 
         loop {
+            if self.is_closed {
+                info!(
+                    "Session for client on address {} closed",
+                    self.stream.peer_addr().unwrap(),
+                );
+                break;
+            }
+
             let disconnect = self
                 .handle_packet(&mut reader)
                 .context("Failed handling packet")?;
@@ -128,6 +138,12 @@ impl Session {
             self.client_sequence_number.fetch_add(1, ORDERING);
         }
 
+        Ok(())
+    }
+
+    pub fn close(&mut self) -> Result<()> {
+        self.stream.shutdown(Shutdown::Both)?;
+        self.is_closed = true;
         Ok(())
     }
 
@@ -195,6 +211,7 @@ impl Session {
     pub fn try_clone(&self) -> Result<Self> {
         Ok(Self {
             stream: self.stream.try_clone()?,
+            is_closed: self.is_closed,
             server_sequence_number: self.server_sequence_number.clone(),
             client_sequence_number: self.client_sequence_number.clone(),
             server_config: self.server_config,

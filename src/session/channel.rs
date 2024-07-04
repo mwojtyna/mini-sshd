@@ -157,16 +157,24 @@ impl Session {
         let recipient_chan_num = reader.next_u32()?;
         trace!("channel_number = {}", recipient_chan_num);
 
-        let mut channels = self.channels.lock().unwrap();
+        let channels = self.channels.clone();
+        let mut channels = channels.lock().unwrap();
         let channel = channels.get_mut(&recipient_chan_num);
 
         if let Some(channel) = channel {
+            let data = reader.next_string()?;
+
+            // Close connection if the client sent an EOF (^D)
+            const EOF_CODE: u8 = 4;
+            if !channel.pty_raw_mode() && data.contains(&EOF_CODE) {
+                self.close().context("Failed closing session")?;
+                return Ok(());
+            }
+
             if channel.pty_fds.is_some() {
-                let data = reader.next_string()?;
                 channel.write_terminal(&data)?;
             }
         } else {
-            drop(channels);
             reject!(
                 MessageType::SSH_MSG_CHANNEL_FAILURE,
                 self,

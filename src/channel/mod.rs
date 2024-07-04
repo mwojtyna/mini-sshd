@@ -1,7 +1,7 @@
 use std::{
     os::fd::OwnedFd,
     sync::{
-        atomic::{AtomicU32, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
 };
@@ -39,6 +39,7 @@ const ORDERING: Ordering = Ordering::Relaxed;
 
 pub struct Channel {
     pub pty_fds: Option<PtyPair>,
+    pub pty_raw_mode: Arc<AtomicBool>,
 
     num: u32,
     window_size: Arc<AtomicU32>,
@@ -63,11 +64,13 @@ impl From<OpenptyResult> for PtyPair {
 impl Channel {
     pub fn new(num: u32, window_size: u32, max_packet_size: u32) -> Self {
         Self {
+            pty_fds: None,
+            pty_raw_mode: Arc::new(false.into()),
+
             num,
             window_size: Arc::new(window_size.into()),
             initial_window_size: window_size,
             max_packet_size,
-            pty_fds: None,
         }
     }
 
@@ -128,6 +131,14 @@ impl Channel {
         self.pty_fds.as_ref().expect("Pty not initialized yet")
     }
 
+    pub fn pty_raw_mode(&self) -> bool {
+        self.pty_raw_mode.load(ORDERING)
+    }
+
+    pub fn set_pty_raw_mode(&self, raw_mode: bool) {
+        self.pty_raw_mode.store(raw_mode, ORDERING);
+    }
+
     pub fn try_clone(&self) -> Result<Self> {
         let pty_fds = PtyPair {
             master: self.pty_fds().master.try_clone()?,
@@ -136,12 +147,15 @@ impl Channel {
         cloexec(&pty_fds.master)?;
         cloexec(&pty_fds.slave)?;
 
-        Ok(Self {
+        let copy = Self {
+            pty_fds: Some(pty_fds),
+            pty_raw_mode: self.pty_raw_mode.clone(),
+
             num: self.num,
             window_size: self.window_size.clone(),
             initial_window_size: self.initial_window_size,
             max_packet_size: self.max_packet_size,
-            pty_fds: Some(pty_fds),
-        })
+        };
+        Ok(copy)
     }
 }
