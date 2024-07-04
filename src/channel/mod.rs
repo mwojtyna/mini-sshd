@@ -23,7 +23,8 @@ def_enum!(pub ChannelRequestType => &'static str {
     ENV => "env",
     SHELL => "shell",
     EXEC => "exec",
-    SUBSYSTEM => "subsystem"
+    SUBSYSTEM => "subsystem",
+    WINDOW_CHANGE => "window-change"
 });
 
 #[allow(non_camel_case_types, dead_code)]

@@ -91,7 +91,9 @@ impl Session {
             trace!("want_reply = {}", want_reply);
 
             match request_type.as_str() {
-                ChannelRequestType::PTY_REQ => channel.pty_req(reader)?,
+                ChannelRequestType::PTY_REQ => {
+                    channel.pty_req(reader).context("Failed handling pty_req")?
+                }
                 ChannelRequestType::SHELL => {
                     let user_name = self.user_name();
 
@@ -114,7 +116,9 @@ impl Session {
                     });
                 }
                 ChannelRequestType::WINDOW_CHANGE => {
-                    todo!()
+                    channel
+                        .window_change(reader)
+                        .context("Failed handling window_change")?;
                 }
 
                 _ => {

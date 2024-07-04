@@ -13,10 +13,10 @@ use enum_iterator::all;
 use log::{debug, trace};
 use nix::{
     fcntl::{fcntl, FcntlArg, FdFlag},
-    ioctl_write_int_bad,
+    ioctl_write_int_bad, ioctl_write_ptr_bad,
     libc::{
-        TIOCSCTTY, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT, VREPRINT,
-        VSTART, VSTOP, VSUSP, VWERASE,
+        TIOCSCTTY, TIOCSWINSZ, VDISCARD, VEOF, VEOL, VEOL2, VERASE, VINTR, VKILL, VLNEXT, VQUIT,
+        VREPRINT, VSTART, VSTOP, VSUSP, VWERASE,
     },
     pty::{openpty, Winsize},
     sys::termios::{
@@ -65,7 +65,7 @@ impl Channel {
         debug!("width_px = {}", width_px);
         debug!("height_px = {}", height_px);
         trace!("modes_blob = {:?}", modes_blob);
-        trace!("modes = {:?}", modes);
+        debug!("modes = {:?}", modes);
 
         let result = openpty(&winsize, None)?;
         cloexec(&result.master)?;
@@ -82,6 +82,7 @@ impl Channel {
         Ok(())
     }
 
+    // RFC 4254 § 6.5
     pub fn shell(&self, user_name: &str) -> Result<()> {
         let user = User::from_name(user_name)?
             .context(format!("User with name {:?} not found", user_name))?;
@@ -125,6 +126,34 @@ impl Channel {
                 .spawn()?
         };
         debug!("Opened shell {:?} with pid {:?}", user.shell, child.id());
+
+        Ok(())
+    }
+
+    // RFC 4254 § 6.7
+    // Exception to the RFC: boolean value isn't present in the packet sent by an OpenSSH client
+    pub fn window_change(&mut self, reader: &mut PayloadReader) -> Result<()> {
+        let cols = reader.next_u32()? as u16;
+        let rows = reader.next_u32()? as u16;
+        let width_px = reader.next_u32()? as u16;
+        let height_px = reader.next_u32()? as u16;
+        // https://man7.org/linux/man-pages/man2/TIOCSWINSZ.2const.html
+        let winsize = Winsize {
+            ws_row: if rows > 0 { rows } else { height_px },
+            ws_col: if cols > 0 { cols } else { width_px },
+            ws_xpixel: 0, // unused
+            ws_ypixel: 0, // unused
+        };
+
+        debug!("cols = {}", cols);
+        debug!("rows = {}", rows);
+        debug!("width_px = {}", width_px);
+        debug!("height_px = {}", height_px);
+
+        ioctl_write_ptr_bad!(tiocswinsz, TIOCSWINSZ, Winsize);
+        unsafe {
+            tiocswinsz(self.pty_fds().master.as_raw_fd(), &winsize)?;
+        }
 
         Ok(())
     }
