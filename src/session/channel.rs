@@ -115,6 +115,7 @@ impl Session {
                         channel.send_packet(&packet, &mut session)?;
                     });
                 }
+                ChannelRequestType::ENV => channel.env(reader)?,
                 ChannelRequestType::WINDOW_CHANGE => {
                     channel
                         .window_change(reader)

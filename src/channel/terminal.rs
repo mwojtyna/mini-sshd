@@ -82,6 +82,18 @@ impl Channel {
         Ok(())
     }
 
+    // RFC 4254 § 6.4
+    pub fn env(&mut self, reader: &mut PayloadReader) -> Result<()> {
+        let var_name = reader.next_string_utf8()?;
+        debug!("var_name = {}", var_name);
+        let var_value = reader.next_string_utf8()?;
+        debug!("var_value = {}", var_value);
+
+        self.pty_envs.insert(var_name, var_value);
+
+        Ok(())
+    }
+
     // RFC 4254 § 6.5
     pub fn shell(&self, user_name: &str) -> Result<()> {
         let user = User::from_name(user_name)?
@@ -110,6 +122,7 @@ impl Channel {
                 .env_clear()
                 .env("SHELL", &user.shell)
                 .envs(std::env::vars_os())
+                .envs(&self.pty_envs)
                 .uid(user.uid.as_raw())
                 .gid(user.gid.as_raw())
                 .stdin(stdin)

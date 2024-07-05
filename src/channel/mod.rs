@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     os::fd::OwnedFd,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
@@ -40,6 +41,7 @@ const ORDERING: Ordering = Ordering::Relaxed;
 pub struct Channel {
     pub pty_fds: Option<PtyPair>,
     pub pty_raw_mode: Arc<AtomicBool>,
+    pub pty_envs: HashMap<String, String>,
 
     num: u32,
     window_size: Arc<AtomicU32>,
@@ -66,6 +68,7 @@ impl Channel {
         Self {
             pty_fds: None,
             pty_raw_mode: Arc::new(false.into()),
+            pty_envs: HashMap::new(),
 
             num,
             window_size: Arc::new(window_size.into()),
@@ -150,6 +153,7 @@ impl Channel {
         let copy = Self {
             pty_fds: Some(pty_fds),
             pty_raw_mode: self.pty_raw_mode.clone(),
+            pty_envs: self.pty_envs.clone(),
 
             num: self.num,
             window_size: self.window_size.clone(),

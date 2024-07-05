@@ -272,7 +272,7 @@ fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>
             let mut private_key_file = File::create_new(&private_key_path)
                 .context("Failed creating new private key file")?;
             private_key_file.write_all(&pair.private_key_to_pem()?)?;
-            fs::set_permissions(&private_key_path, Permissions::from_mode(0o600))?;
+            fs::set_permissions(&private_key_path, Permissions::from_mode(0o600))?; // owner: rw
             debug!("Created private key file {:?}", private_key_path);
 
             if public_key_exists {
@@ -282,7 +282,7 @@ fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>
             let mut public_key_file = File::create_new(&public_key_path)
                 .context("Failed creating new private key file")?;
             public_key_file.write_all(&pair.public_key_to_pem()?)?;
-            fs::set_permissions(&public_key_path, Permissions::from_mode(0o644))?;
+            fs::set_permissions(&public_key_path, Permissions::from_mode(0o644))?; // owner: rw, group: r, other: r
             debug!("Created public key file {:?}", public_key_path);
 
             keys.insert(
