@@ -1,6 +1,6 @@
 use core::mem::size_of;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use log::{debug, trace};
 
 use crate::{
@@ -44,6 +44,10 @@ impl Session {
 
         let user_name = reader.next_string_utf8()?;
         trace!("username = {}", user_name);
+
+        if user_name == "root" {
+            bail!("Connecting to root user not allowed");
+        }
 
         let service_name = reader.next_string_utf8()?;
 
