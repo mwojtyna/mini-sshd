@@ -299,7 +299,7 @@ fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>
 }
 
 fn connect() -> Result<()> {
-    let listener = TcpListener::bind(format!("127.0.0.1:{}", PORT))?;
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))?;
 
     for client in listener.incoming() {
         let stream = client.context("Client is invalid")?;
