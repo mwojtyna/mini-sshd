@@ -206,8 +206,9 @@ fn decode_packet_encrypted(
     decrypter.update(&rest_enc, &mut rest_dec)?;
 
     // Join first block and rest of decrypted packet
-    let mut packet_dec = first_block_dec[PACKET_LENGTH_SIZE..].to_vec();
-    packet_dec.extend(rest_dec);
+    let mut packet_dec = Vec::with_capacity(PACKET_LENGTH_SIZE + rest_dec.len());
+    packet_dec.extend_from_slice(&first_block_dec[PACKET_LENGTH_SIZE..]);
+    packet_dec.extend_from_slice(&rest_dec);
 
     let mac_len = session
         .algorithms()

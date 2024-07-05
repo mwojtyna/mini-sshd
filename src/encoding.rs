@@ -135,7 +135,7 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
     }
 
     pub fn write_bytes(mut self, data: &[u8]) -> Self {
-        self.payload.extend(data);
+        self.payload.extend_from_slice(data);
         self
     }
 
@@ -145,25 +145,25 @@ impl<'packet_builder_impl> PacketBuilder<'packet_builder_impl> {
     }
 
     pub fn write_u32(mut self, value: u32) -> Self {
-        self.payload.extend(encode_u32(value));
+        self.payload.extend_from_slice(&encode_u32(value));
         self
     }
 
     // RFC 4251 § 5
     pub fn write_name_list(mut self, names: &[&str]) -> Self {
-        self.payload.extend(encode_name_list(names));
+        self.payload.append(&mut encode_name_list(names));
         self
     }
 
     // RFC 4251 § 5
     pub fn write_string(mut self, data: &[u8]) -> Self {
-        self.payload.extend(encode_string(data));
+        self.payload.append(&mut encode_string(data));
         self
     }
 
     // RFC 4251 § 5
     pub fn write_mpint(mut self, data: &BigNumRef) -> Self {
-        self.payload.extend(encode_mpint(data));
+        self.payload.append(&mut encode_mpint(data));
         self
     }
 }
