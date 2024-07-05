@@ -26,14 +26,14 @@ impl Session {
 
         let host_key = &self
             .server_config
-            .host_key
+            .host_keys
             .get(server_host_key_algorithm.name.as_str())
             .unwrap();
 
         // Server's public host key
         let k_s = encode_ec_public_key(
             &self.algorithms().server_host_key_algorithm,
-            &host_key.public_key,
+            &host_key.public_key_bytes,
         )?;
 
         let crypto = self.crypto().read().unwrap();

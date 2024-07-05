@@ -8,7 +8,7 @@ use openssl::{
     ecdsa::EcdsaSig,
     hash::MessageDigest,
     nid::Nid,
-    pkey::{PKey, Private, Public},
+    pkey::{HasPublic, PKey, Private, Public},
     rand::rand_bytes,
     sign::Signer,
     symm::Crypter,
@@ -18,8 +18,8 @@ use crate::{encoding::encode_u32, session::algorithm_negotiation::Algorithms};
 
 #[derive(Debug, Clone)]
 pub struct EcHostKey {
-    pub public_key: Vec<u8>,
     pub ec_pair: EcKey<Private>,
+    pub public_key_bytes: Vec<u8>,
 }
 
 pub struct Crypto {
@@ -63,21 +63,24 @@ impl Crypto {
         Ok(openssl::hash::hash(hash, data)?.to_vec())
     }
 
-    pub fn ec_generate_host_key(curve: Nid) -> Result<EcHostKey> {
+    pub fn ec_generate_host_key(curve: Nid) -> Result<EcKey<Private>> {
+        let group = EcGroup::from_curve_name(curve)?;
+        let ec_pair = EcKey::generate(&group)?;
+        Ok(ec_pair)
+    }
+
+    pub fn ec_get_public_key_bytes<T: HasPublic>(
+        ec_pair: &EcKey<T>,
+        curve: Nid,
+    ) -> Result<Vec<u8>> {
         let mut ctx = BigNumContext::new()?;
         let group = EcGroup::from_curve_name(curve)?;
 
-        let ec_pair = EcKey::generate(&group)?;
-        let host_key = EcHostKey {
-            public_key: ec_pair.public_key().to_bytes(
-                &group,
-                PointConversionForm::UNCOMPRESSED,
-                &mut ctx,
-            )?,
-            ec_pair,
-        };
-
-        Ok(host_key)
+        let bytes =
+            ec_pair
+                .public_key()
+                .to_bytes(&group, PointConversionForm::UNCOMPRESSED, &mut ctx)?;
+        Ok(bytes)
     }
 
     /// # Returns

@@ -9,8 +9,10 @@
 
 use std::{
     collections::{HashMap, HashSet},
-    fs::File,
+    fs::{self, File, Permissions},
+    io::{Read, Write},
     net::TcpListener,
+    os::unix::fs::PermissionsExt,
     path::Path,
     sync::OnceLock,
     thread,
@@ -19,10 +21,9 @@ use std::{
 use anyhow::{Context, Result};
 use crypto::{Crypto, EcHostKey};
 use decoding::decode_ec_public_key;
-use dirs::home_dir;
 use indexmap::indexmap;
 use log::{debug, error, info, trace, warn};
-use openssl::{base64, hash::MessageDigest, nid::Nid, symm::Cipher};
+use openssl::{base64, ec::EcKey, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
 use types::{
     CompressionAlgorithm, EncryptionAlgorithm, EncryptionAlgorithmDetails, HmacAlgorithm,
@@ -52,7 +53,7 @@ pub struct AuthorizedKey {
 pub struct ServerConfig {
     ident_string: String,
     algorithms: ServerAlgorithms,
-    host_key: HashMap<&'static str, EcHostKey>,
+    host_keys: HashMap<String, EcHostKey>,
     authorized_keys: HashSet<AuthorizedKey>,
 }
 
@@ -148,15 +149,12 @@ fn main() -> Result<()> {
         read_authorized_keys(&algorithms).context("Failed to read 'authorized_keys' file")?;
     trace!("authorized_keys = {:02x?}", authorized_keys);
 
+    let host_keys = read_host_keys(&algorithms).context("Failed to read host keys from disk")?;
+
     let _ = SERVER_CONFIG.set(ServerConfig {
         ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
-        algorithms: algorithms.clone(),
-        // TODO: Save host keys to disk on first start
-        host_key: hashmap! {
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP256).unwrap().curve)?,
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP384).unwrap().curve)?,
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => Crypto::ec_generate_host_key(algorithms.server_host_key_algorithms.get(HostKeyAlgorithm::ECDSA_SHA2_NISTP521).unwrap().curve)?
-        },
+        algorithms,
+        host_keys,
         authorized_keys,
     });
 
@@ -170,10 +168,9 @@ fn main() -> Result<()> {
 fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<AuthorizedKey>> {
     trace!("--- BEGIN AUTHORIZED_KEYS READ ---");
 
-    // TODO: Config file
     const AUTHORIZED_KEYS_PATH: &str = ".ssh/authorized_keys";
 
-    let home = home_dir().context("Failed to get home directory")?;
+    let home = dirs::home_dir().context("Failed to get home directory")?;
     let path = home.join(Path::new(AUTHORIZED_KEYS_PATH));
 
     if !path.exists() {
@@ -220,6 +217,85 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Au
 
     trace!("--- END AUTHORIZED_KEYS READ ---");
     Ok(authorized_keys)
+}
+
+fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>> {
+    const HOST_KEYS_FOLDER: &str = "mini-sshd";
+
+    let data_dir = dirs::data_dir().context("Failed to get data directory")?;
+    let dir = data_dir.join(HOST_KEYS_FOLDER);
+
+    if !Path::exists(&dir) {
+        fs::create_dir(&dir).context("Failed to create data directory")?;
+    }
+
+    let mut keys = HashMap::new();
+    for algo_name in HostKeyAlgorithm::VARIANTS {
+        let curve = algos
+            .server_host_key_algorithms
+            .get(algo_name)
+            .unwrap()
+            .curve;
+
+        let private_key_path = dir.join(format!("ssh_host_{}_key", algo_name));
+        let public_key_path = dir.join(format!("ssh_host_{}_key.pub", algo_name));
+
+        let private_key_exists = Path::exists(&private_key_path);
+        let public_key_exists = Path::exists(&public_key_path);
+
+        if private_key_exists && public_key_exists {
+            let mut private_key_file = File::open(&private_key_path)?;
+            let mut private_key_pem = Vec::new();
+            private_key_file.read_to_end(&mut private_key_pem)?;
+
+            let mut public_key_file = File::open(&public_key_path)?;
+            let mut public_key_pem = Vec::new();
+            public_key_file.read_to_end(&mut public_key_pem)?;
+
+            let pair = EcKey::private_key_from_pem(&private_key_pem)?;
+            let public_key_bytes = Crypto::ec_get_public_key_bytes(&pair, curve)?;
+            keys.insert(
+                (*algo_name).to_owned(),
+                EcHostKey {
+                    ec_pair: pair,
+                    public_key_bytes,
+                },
+            );
+        } else {
+            let pair = Crypto::ec_generate_host_key(curve)?;
+            let public_key_bytes = Crypto::ec_get_public_key_bytes(&pair, curve)?;
+
+            if private_key_exists {
+                fs::remove_file(&private_key_path).context("Failed removing private key file")?;
+                debug!("Removed private key file {:?}", private_key_path);
+            }
+            let mut private_key_file = File::create_new(&private_key_path)
+                .context("Failed creating new private key file")?;
+            private_key_file.write_all(&pair.private_key_to_pem()?)?;
+            fs::set_permissions(&private_key_path, Permissions::from_mode(0o600))?;
+            debug!("Created private key file {:?}", private_key_path);
+
+            if public_key_exists {
+                fs::remove_file(&public_key_path).context("Failed removing public key file")?;
+                debug!("Removed public key file {:?}", public_key_path);
+            }
+            let mut public_key_file = File::create_new(&public_key_path)
+                .context("Failed creating new private key file")?;
+            public_key_file.write_all(&pair.public_key_to_pem()?)?;
+            fs::set_permissions(&public_key_path, Permissions::from_mode(0o644))?;
+            debug!("Created public key file {:?}", public_key_path);
+
+            keys.insert(
+                (*algo_name).to_owned(),
+                EcHostKey {
+                    ec_pair: pair,
+                    public_key_bytes,
+                },
+            );
+        }
+    }
+
+    Ok(keys)
 }
 
 fn connect() -> Result<()> {
