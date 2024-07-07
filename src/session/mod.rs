@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     io::{BufRead, BufReader, Write},
-    net::{Shutdown, TcpStream},
+    net::TcpStream,
     sync::{
         atomic::{AtomicU32, Ordering},
         Arc, Mutex, RwLock,
@@ -125,7 +125,7 @@ impl Session {
                     "Session for client on address {} closed",
                     self.stream.peer_addr().unwrap(),
                 );
-                break;
+                return Ok(());
             }
 
             let disconnect = self
@@ -141,10 +141,8 @@ impl Session {
         Ok(())
     }
 
-    pub fn close(&mut self) -> Result<()> {
-        self.stream.shutdown(Shutdown::Both)?;
+    pub fn close(&mut self) {
         self.is_closed = true;
-        Ok(())
     }
 
     pub fn server_sequence_number(&self) -> u32 {

@@ -1,7 +1,9 @@
 use std::{fs::File, io::BufReader, thread};
 
 use crate::{
-    channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
+    channel::{
+        terminal::EOF_CODE, Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST,
+    },
     decoding::PayloadReader,
     encoding::PacketBuilder,
     types::MessageType,
@@ -102,7 +104,7 @@ impl Session {
 
                     let mut session = self.try_clone().context("Failed to clone session")?;
 
-                    let file = File::from(channel.pty_fds().master.try_clone()?);
+                    let file = File::from(channel.pty().pair.master.try_clone()?);
                     let mut reader = BufReader::new(file);
 
                     thread::spawn::<_, Result<()>>(move || loop {
@@ -166,13 +168,17 @@ impl Session {
             let data = reader.next_string()?;
 
             // Close connection if the client sent an EOF (^D)
-            const EOF_CODE: u8 = 4;
-            if !channel.pty_raw_mode() && data.contains(&EOF_CODE) {
-                self.close().context("Failed closing session")?;
+            if !channel.pty().pty_raw_mode() && data.contains(&EOF_CODE) {
+                let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_CLOSE, self)
+                    .write_u32(recipient_chan_num)
+                    .build()?;
+                self.send_packet(&packet)?;
+                channels.remove(&recipient_chan_num);
+
                 return Ok(());
             }
 
-            if channel.pty_fds.is_some() {
+            if channel.pty_fds_is_some() {
                 channel.write_terminal(&data)?;
             }
         } else {

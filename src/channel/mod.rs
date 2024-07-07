@@ -39,19 +39,55 @@ pub enum ChannelOpenFailureReason {
 const ORDERING: Ordering = Ordering::Relaxed;
 
 pub struct Channel {
-    pub pty_fds: Option<PtyPair>,
-    pub pty_raw_mode: Arc<AtomicBool>,
-    pub pty_envs: HashMap<String, String>,
-
     num: u32,
     window_size: Arc<AtomicU32>,
     initial_window_size: u32,
     max_packet_size: u32,
+    pty: Option<Pty>,
+}
+
+pub struct Pty {
+    pub pair: PtyPair,
+    pub raw_mode: Arc<AtomicBool>,
+    pub envs: HashMap<String, String>,
 }
 
 pub struct PtyPair {
     pub master: OwnedFd,
     pub slave: OwnedFd,
+}
+
+impl Pty {
+    pub fn new(pair: PtyPair) -> Self {
+        Self {
+            pair,
+            raw_mode: Arc::new(false.into()),
+            envs: HashMap::new(),
+        }
+    }
+
+    pub fn pty_raw_mode(&self) -> bool {
+        self.raw_mode.load(ORDERING)
+    }
+
+    pub fn set_pty_raw_mode(&self, raw_mode: bool) {
+        self.raw_mode.store(raw_mode, ORDERING);
+    }
+
+    pub fn try_clone(&self) -> Result<Self> {
+        let pty_fds = PtyPair {
+            master: self.pair.master.try_clone()?,
+            slave: self.pair.slave.try_clone()?,
+        };
+        cloexec(&pty_fds.master)?;
+        cloexec(&pty_fds.slave)?;
+
+        Ok(Self {
+            pair: pty_fds,
+            raw_mode: self.raw_mode.clone(),
+            envs: self.envs.clone(),
+        })
+    }
 }
 
 impl From<OpenptyResult> for PtyPair {
@@ -66,14 +102,11 @@ impl From<OpenptyResult> for PtyPair {
 impl Channel {
     pub fn new(num: u32, window_size: u32, max_packet_size: u32) -> Self {
         Self {
-            pty_fds: None,
-            pty_raw_mode: Arc::new(false.into()),
-            pty_envs: HashMap::new(),
-
             num,
             window_size: Arc::new(window_size.into()),
             initial_window_size: window_size,
             max_packet_size,
+            pty: None,
         }
     }
 
@@ -130,35 +163,29 @@ impl Channel {
         Ok(())
     }
 
-    pub fn pty_fds(&self) -> &PtyPair {
-        self.pty_fds.as_ref().expect("Pty not initialized yet")
+    pub const fn pty_fds_is_some(&self) -> bool {
+        self.pty.is_some()
     }
 
-    pub fn pty_raw_mode(&self) -> bool {
-        self.pty_raw_mode.load(ORDERING)
+    /// Panics if pty_fds isn't initialized
+    pub fn pty(&self) -> &Pty {
+        self.pty.as_ref().expect("Pty not initialized yet")
     }
 
-    pub fn set_pty_raw_mode(&self, raw_mode: bool) {
-        self.pty_raw_mode.store(raw_mode, ORDERING);
+    pub fn pty_mut(&mut self) -> &mut Pty {
+        self.pty.as_mut().expect("Pty not initialized yet")
     }
 
     pub fn try_clone(&self) -> Result<Self> {
-        let pty_fds = PtyPair {
-            master: self.pty_fds().master.try_clone()?,
-            slave: self.pty_fds().slave.try_clone()?,
-        };
-        cloexec(&pty_fds.master)?;
-        cloexec(&pty_fds.slave)?;
-
         let copy = Self {
-            pty_fds: Some(pty_fds),
-            pty_raw_mode: self.pty_raw_mode.clone(),
-            pty_envs: self.pty_envs.clone(),
-
             num: self.num,
             window_size: self.window_size.clone(),
             initial_window_size: self.initial_window_size,
             max_packet_size: self.max_packet_size,
+            pty: match &self.pty {
+                Some(pty) => Some(pty.try_clone()?),
+                None => None,
+            },
         };
         Ok(copy)
     }

@@ -145,11 +145,11 @@ fn main() -> Result<()> {
         languages_server_to_client: vec![""],
     };
 
+    let host_keys = read_host_keys(&algorithms).context("Failed to read host keys from disk")?;
+
     let authorized_keys =
         read_authorized_keys(&algorithms).context("Failed to read 'authorized_keys' file")?;
     trace!("authorized_keys = {:02x?}", authorized_keys);
-
-    let host_keys = read_host_keys(&algorithms).context("Failed to read host keys from disk")?;
 
     let _ = SERVER_CONFIG.set(ServerConfig {
         ident_string: format!("SSH-2.0-minisshd_{}", VERSION),
@@ -178,7 +178,7 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Au
         File::create_new(&path)?;
     }
 
-    let contents = std::fs::read_to_string(path)?;
+    let contents = fs::read_to_string(path)?;
     let split: Vec<&str> = contents.trim().split('\n').collect();
     let mut authorized_keys = HashSet::new();
 

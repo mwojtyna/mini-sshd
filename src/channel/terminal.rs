@@ -34,6 +34,8 @@ use crate::{
 
 use super::Channel;
 
+pub const EOF_CODE: u8 = 4;
+
 #[derive(Debug)]
 pub struct TerminalMode {
     pub opcode: TerminalOpCode,
@@ -77,7 +79,7 @@ impl Channel {
             result.slave.as_raw_fd()
         );
 
-        self.pty_fds = Some(result.into());
+        self.pty = Some(crate::channel::Pty::new(result.into()));
 
         Ok(())
     }
@@ -89,7 +91,7 @@ impl Channel {
         let var_value = reader.next_string_utf8()?;
         debug!("var_value = {}", var_value);
 
-        self.pty_envs.insert(var_name, var_value);
+        self.pty_mut().envs.insert(var_name, var_value);
 
         Ok(())
     }
@@ -100,7 +102,7 @@ impl Channel {
             .context(format!("User with name {:?} not found", user_name))?;
         trace!("user = {:?}", user);
 
-        let slave_fd = &self.pty_fds().slave;
+        let slave_fd = &self.pty().pair.slave;
         let slave_raw_fd = slave_fd.as_raw_fd();
         // Login shell must have '-' prepended to shell executable
         let arg0 = "-".to_owned()
@@ -122,7 +124,7 @@ impl Channel {
                 .env_clear()
                 .env("SHELL", &user.shell)
                 .envs(std::env::vars_os())
-                .envs(&self.pty_envs)
+                .envs(&self.pty().envs)
                 .uid(user.uid.as_raw())
                 .gid(user.gid.as_raw())
                 .stdin(stdin)
@@ -165,14 +167,15 @@ impl Channel {
 
         ioctl_write_ptr_bad!(tiocswinsz, TIOCSWINSZ, Winsize);
         unsafe {
-            tiocswinsz(self.pty_fds().master.as_raw_fd(), &winsize)?;
+            tiocswinsz(self.pty().pair.master.as_raw_fd(), &winsize)?;
         }
 
         Ok(())
     }
 
     pub fn read_terminal(&mut self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
-        self.set_pty_raw_mode(is_raw_mode(&self.pty_fds().master)?);
+        self.pty()
+            .set_pty_raw_mode(is_raw_mode(&self.pty().pair.master)?);
 
         let mut buf = vec![0; self.max_packet_size as usize - 512]; // 0.5KB less than max packet size to account for packet length, padding
         let amount = reader.read(&mut buf)?;
@@ -181,7 +184,7 @@ impl Channel {
     }
 
     pub fn write_terminal(&mut self, data: &[u8]) -> Result<()> {
-        let fd = &self.pty_fds().master;
+        let fd = &self.pty().pair.master;
         write(fd, data)?;
 
         Ok(())
