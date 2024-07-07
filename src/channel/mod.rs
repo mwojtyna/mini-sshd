@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    os::fd::OwnedFd,
+    fs::File,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
@@ -54,8 +54,8 @@ pub struct Pty {
 }
 
 pub struct PtyPair {
-    pub master: OwnedFd,
-    pub slave: OwnedFd,
+    pub master: File,
+    pub slave: File,
 }
 
 impl Pty {
@@ -105,8 +105,8 @@ impl Pty {
 impl From<OpenptyResult> for PtyPair {
     fn from(value: OpenptyResult) -> Self {
         Self {
-            master: value.master,
-            slave: value.slave,
+            master: File::from(value.master),
+            slave: File::from(value.slave),
         }
     }
 }

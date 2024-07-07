@@ -1,6 +1,6 @@
 use std::{
     fs::File,
-    io::{BufReader, Read},
+    io::{BufReader, Read, Write},
     os::{
         fd::{AsFd, AsRawFd, FromRawFd},
         unix::process::CommandExt,
@@ -23,11 +23,12 @@ use nix::{
         cfsetispeed, cfsetospeed, tcgetattr, tcsetattr, BaudRate, ControlFlags, InputFlags,
         LocalFlags, OutputFlags, SetArg,
     },
-    unistd::{setsid, write, User},
+    unistd::{setsid, User},
 };
 use num_traits::FromPrimitive;
 
 use crate::{
+    channel::PtyPair,
     decoding::{u8_array_to_u32, u8_to_bool, PayloadReader},
     types::TerminalOpCode,
 };
@@ -77,7 +78,7 @@ impl Channel {
             result.slave.as_raw_fd()
         );
 
-        self.pty = Some(crate::channel::Pty::new(result.into()));
+        self.pty = Some(crate::channel::Pty::new(PtyPair::from(result)));
 
         Ok(())
     }
@@ -100,8 +101,9 @@ impl Channel {
             .context(format!("User with name {:?} not found", user_name))?;
         trace!("user = {:?}", user);
 
-        let slave_fd = &self.pty().pair.slave;
-        let slave_raw_fd = slave_fd.as_raw_fd();
+        let slave = &self.pty().pair.slave;
+        let slave_raw_fd = slave.as_raw_fd();
+
         // Login shell must have '-' prepended to shell executable
         let arg0 = "-".to_owned()
             + user
@@ -111,9 +113,9 @@ impl Channel {
                 .next()
                 .context("Invalid shell path")?;
 
-        let stdin = fd_to_stdio(slave_fd);
-        let stdout = fd_to_stdio(slave_fd);
-        let stderr = fd_to_stdio(slave_fd);
+        let stdin = fd_to_stdio(slave);
+        let stdout = fd_to_stdio(slave);
+        let stderr = fd_to_stdio(slave);
 
         let child = unsafe {
             Command::new(&user.shell)
@@ -182,10 +184,7 @@ impl Channel {
     }
 
     pub fn write_terminal(&mut self, data: &[u8]) -> Result<()> {
-        let fd = &self.pty().pair.master;
-        write(fd, data)?;
-
-        Ok(())
+        Ok(self.pty_mut().pair.master.write_all(data)?)
     }
 }
 

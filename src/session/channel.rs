@@ -1,4 +1,4 @@
-use std::{fs::File, io::BufReader, thread};
+use std::{io::BufReader, thread};
 
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
@@ -101,9 +101,7 @@ impl Session {
                     channel.shell(user_name)?;
 
                     let mut session = self.try_clone().context("Failed to clone session")?;
-
-                    let file = File::from(channel.pty().pair.master.try_clone()?);
-                    let mut reader = BufReader::new(file);
+                    let mut reader = BufReader::new(channel.pty().pair.master.try_clone()?);
 
                     thread::spawn::<_, Result<()>>(move || loop {
                         if channel.pty().should_stop_pty_thread() {
