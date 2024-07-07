@@ -34,8 +34,6 @@ use crate::{
 
 use super::Channel;
 
-pub const EOF_CODE: u8 = 4;
-
 #[derive(Debug)]
 pub struct TerminalMode {
     pub opcode: TerminalOpCode,
@@ -175,9 +173,9 @@ impl Channel {
 
     pub fn read_terminal(&mut self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
         self.pty()
-            .set_pty_raw_mode(is_raw_mode(&self.pty().pair.master)?);
+            .set_is_raw_mode(is_raw_mode(&self.pty().pair.master)?);
 
-        let mut buf = vec![0; self.max_packet_size as usize - 512]; // 0.5KB less than max packet size to account for packet length, padding
+        let mut buf = vec![0; self.max_packet_size as usize - 512]; // 0.5KB less than max packet size to account for packet length, padding, etc.
         let amount = reader.read(&mut buf)?;
 
         Ok(buf[..amount].to_vec())

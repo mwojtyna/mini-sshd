@@ -50,6 +50,7 @@ pub struct Pty {
     pub pair: PtyPair,
     pub raw_mode: Arc<AtomicBool>,
     pub envs: HashMap<String, String>,
+    pub stop_pty_thread: Arc<AtomicBool>,
 }
 
 pub struct PtyPair {
@@ -63,15 +64,25 @@ impl Pty {
             pair,
             raw_mode: Arc::new(false.into()),
             envs: HashMap::new(),
+            stop_pty_thread: Arc::new(false.into()),
         }
     }
 
-    pub fn pty_raw_mode(&self) -> bool {
+    pub fn raw_mode(&self) -> bool {
         self.raw_mode.load(ORDERING)
     }
 
-    pub fn set_pty_raw_mode(&self, raw_mode: bool) {
+    pub fn set_is_raw_mode(&self, raw_mode: bool) {
         self.raw_mode.store(raw_mode, ORDERING);
+    }
+
+    pub fn should_stop_pty_thread(&self) -> bool {
+        self.stop_pty_thread.load(ORDERING)
+    }
+
+    /// Sets a flag to stop the pty thread on the next iteration
+    pub fn stop_pty_thread(&self) {
+        self.stop_pty_thread.store(true, ORDERING);
     }
 
     pub fn try_clone(&self) -> Result<Self> {
@@ -86,6 +97,7 @@ impl Pty {
             pair: pty_fds,
             raw_mode: self.raw_mode.clone(),
             envs: self.envs.clone(),
+            stop_pty_thread: self.stop_pty_thread.clone(),
         })
     }
 }
@@ -163,7 +175,7 @@ impl Channel {
         Ok(())
     }
 
-    pub const fn pty_fds_is_some(&self) -> bool {
+    pub const fn pty_initialized(&self) -> bool {
         self.pty.is_some()
     }
 

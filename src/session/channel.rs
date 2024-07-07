@@ -1,9 +1,7 @@
 use std::{fs::File, io::BufReader, thread};
 
 use crate::{
-    channel::{
-        terminal::EOF_CODE, Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST,
-    },
+    channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
     decoding::PayloadReader,
     encoding::PacketBuilder,
     types::MessageType,
@@ -108,6 +106,16 @@ impl Session {
                     let mut reader = BufReader::new(file);
 
                     thread::spawn::<_, Result<()>>(move || loop {
+                        if channel.pty().should_stop_pty_thread() {
+                            let packet =
+                                PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_CLOSE, &session)
+                                    .write_u32(recipient_chan_num)
+                                    .build()?;
+                            session.send_packet(&packet)?;
+
+                            break Ok(());
+                        }
+
                         let data = channel.read_terminal(&mut reader)?;
                         let packet =
                             PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_DATA, &session)
@@ -167,18 +175,13 @@ impl Session {
         if let Some(channel) = channel {
             let data = reader.next_string()?;
 
-            // Close connection if the client sent an EOF (^D)
-            if !channel.pty().pty_raw_mode() && data.contains(&EOF_CODE) {
-                let packet = PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_CLOSE, self)
-                    .write_u32(recipient_chan_num)
-                    .build()?;
-                self.send_packet(&packet)?;
-                channels.remove(&recipient_chan_num);
+            if channel.pty_initialized() {
+                // Close connection if the client sent an EOF (^D)
+                const EOF_CODE: u8 = 4;
+                if !channel.pty().raw_mode() && data.contains(&EOF_CODE) {
+                    channel.pty_mut().stop_pty_thread();
+                }
 
-                return Ok(());
-            }
-
-            if channel.pty_fds_is_some() {
                 channel.write_terminal(&data)?;
             }
         } else {
