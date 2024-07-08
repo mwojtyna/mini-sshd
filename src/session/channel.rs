@@ -1,4 +1,4 @@
-use std::{io::BufReader, thread};
+use std::io::BufReader;
 
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
@@ -103,7 +103,7 @@ impl Session {
                     let mut session = self.try_clone().context("Failed to clone session")?;
                     let mut reader = BufReader::new(channel.pty().pair.master.try_clone()?);
 
-                    thread::spawn::<_, Result<()>>(move || loop {
+                    tokio::task::spawn_blocking::<_, Result<()>>(move || loop {
                         if channel.pty().should_stop_pty_thread() {
                             let packet =
                                 PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_CLOSE, &session)

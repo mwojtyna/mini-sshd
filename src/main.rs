@@ -15,7 +15,6 @@ use std::{
     os::unix::fs::PermissionsExt,
     path::Path,
     sync::OnceLock,
-    thread,
 };
 
 use anyhow::{Context, Result};
@@ -25,6 +24,7 @@ use indexmap::indexmap;
 use log::{debug, error, info, trace, warn};
 use openssl::{base64, ec::EcKey, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
+use tokio::task::JoinHandle;
 use types::{
     CompressionAlgorithm, EncryptionAlgorithm, EncryptionAlgorithmDetails, HmacAlgorithm,
     HmacAlgorithmDetails, HostKeyAlgorithm, HostKeyAlgorithmDetails, KexAlgorithm,
@@ -57,7 +57,8 @@ pub struct ServerConfig {
     authorized_keys: HashSet<AuthorizedKey>,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     env_logger::builder().format_target(false).init();
 
     let algorithms = ServerAlgorithms {
@@ -158,8 +159,37 @@ fn main() -> Result<()> {
         authorized_keys,
     });
 
-    if let Err(err) = connect() {
+    if let Err(err) = connect().await {
         error!("{:?}", err);
+    }
+
+    Ok(())
+}
+
+async fn connect() -> Result<()> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))?;
+
+    for client in listener.incoming() {
+        let stream = client.context("Client is invalid")?;
+        let client_addr = stream.peer_addr().unwrap();
+
+        let handle: JoinHandle<Result<()>> = tokio::task::spawn(async {
+            let mut session = Session::new(stream, SERVER_CONFIG.get().unwrap());
+            session.start()?;
+            Ok(())
+        });
+        tokio::task::spawn(async move {
+            match handle.await {
+                Ok(val) => match val {
+                    Ok(()) => debug!("Session for address {} finished successfully", client_addr),
+                    Err(err) => error!(
+                        "Session for address {} finished with error: {:?}",
+                        client_addr, err
+                    ),
+                },
+                Err(_) => error!("Session for address {} panicked", client_addr),
+            }
+        });
     }
 
     Ok(())
@@ -296,31 +326,4 @@ fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>
     }
 
     Ok(keys)
-}
-
-fn connect() -> Result<()> {
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))?;
-
-    for client in listener.incoming() {
-        let stream = client.context("Client is invalid")?;
-        let client_addr = stream.peer_addr().unwrap();
-
-        let handle = thread::spawn::<_, Result<()>>(|| {
-            let mut session = Session::new(stream, SERVER_CONFIG.get().unwrap());
-            session.start()?;
-            Ok(())
-        });
-        thread::spawn(move || match handle.join() {
-            Ok(val) => match val {
-                Ok(()) => debug!("Session for address {} finished successfully", client_addr),
-                Err(err) => error!(
-                    "Session for address {} finished with error: {:?}",
-                    client_addr, err
-                ),
-            },
-            Err(_) => error!("Session for address {} panicked", client_addr),
-        });
-    }
-
-    Ok(())
 }

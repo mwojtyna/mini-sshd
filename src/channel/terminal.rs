@@ -1,11 +1,8 @@
 use std::{
     fs::File,
     io::{BufReader, Read, Write},
-    os::{
-        fd::{AsFd, AsRawFd, FromRawFd},
-        unix::process::CommandExt,
-    },
-    process::{Command, Stdio},
+    os::fd::{AsFd, AsRawFd, FromRawFd},
+    process::Stdio,
 };
 
 use anyhow::{bail, Context, Result};
@@ -26,6 +23,7 @@ use nix::{
     unistd::{setsid, User},
 };
 use num_traits::FromPrimitive;
+use tokio::process::Command;
 
 use crate::{
     channel::PtyPair,
@@ -113,6 +111,7 @@ impl Channel {
                 .next()
                 .context("Invalid shell path")?;
 
+        // Don't use server's stdio
         let stdin = fd_to_stdio(slave);
         let stdout = fd_to_stdio(slave);
         let stderr = fd_to_stdio(slave);

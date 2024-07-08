@@ -48,9 +48,9 @@ pub struct Channel {
 
 pub struct Pty {
     pub pair: PtyPair,
-    pub raw_mode: Arc<AtomicBool>,
-    pub envs: HashMap<String, String>,
-    pub stop_pty_thread: Arc<AtomicBool>,
+    raw_mode: Arc<AtomicBool>,
+    envs: HashMap<String, String>,
+    stop_pty_thread: Arc<AtomicBool>,
 }
 
 pub struct PtyPair {
