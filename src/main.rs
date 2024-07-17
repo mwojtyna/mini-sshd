@@ -18,10 +18,11 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use clap::Parser;
 use crypto::{Crypto, EcHostKey};
 use decoding::decode_ec_public_key;
 use indexmap::indexmap;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, info, trace, warn, LevelFilter};
 use openssl::{base64, ec::EcKey, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
 use tokio::task::JoinHandle;
@@ -40,8 +41,6 @@ mod session;
 mod types;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
-pub const PORT: usize = 6969;
-
 static SERVER_CONFIG: OnceLock<ServerConfig> = OnceLock::new();
 
 #[derive(PartialEq, Eq, Hash, Debug)]
@@ -57,95 +56,22 @@ pub struct ServerConfig {
     authorized_keys: HashSet<AuthorizedKey>,
 }
 
+#[derive(Parser, Debug)]
+#[command(version)]
+struct Args {
+    #[arg(short, long, default_value_t = 22)]
+    port: usize,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::builder().format_target(false).init();
+    env_logger::builder()
+        .format_target(false)
+        .filter_level(LevelFilter::Info)
+        .init();
 
-    let algorithms = ServerAlgorithms {
-        // RFC 9142 § 4
-        kex_algorithms: indexmap! {
-            KexAlgorithm::ECDH_SHA2_NISTP256 => KexAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-                curve: Nid::X9_62_PRIME256V1
-            },
-            KexAlgorithm::ECDH_SHA2_NISTP384 => KexAlgorithmDetails {
-                hash: MessageDigest::sha384(),
-                curve: Nid::SECP384R1
-            },
-            KexAlgorithm::ECDH_SHA2_NISTP521 => KexAlgorithmDetails {
-                hash: MessageDigest::sha512(),
-                curve: Nid::SECP521R1
-            },
-        },
-
-        // RFC 5656 § 10.1
-        server_host_key_algorithms: indexmap! {
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-                curve: Nid::X9_62_PRIME256V1
-            },
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha384(),
-                curve: Nid::SECP384R1
-            },
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha512(),
-                curve: Nid::SECP521R1
-            },
-        },
-
-        client_host_key_algorithms: indexmap! {
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-                curve: Nid::X9_62_PRIME256V1
-            },
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha384(),
-                curve: Nid::SECP384R1
-            },
-            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
-                hash: MessageDigest::sha512(),
-                curve: Nid::SECP521R1
-            },
-        },
-
-        // RFC 4344 § 4
-        encryption_algorithms_server_to_client: indexmap! {
-            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
-                cipher: Cipher::aes_128_ctr(),
-                block_size: 16,
-            },
-        },
-        encryption_algorithms_client_to_server: indexmap! {
-            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
-                cipher: Cipher::aes_128_ctr(),
-                block_size: 16,
-            },
-        },
-
-        // RFC 6668 § 2
-        mac_algorithms_server_to_client: indexmap! {
-            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-            }
-        },
-        mac_algorithms_client_to_server: indexmap! {
-            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
-                hash: MessageDigest::sha256(),
-            }
-        },
-
-        compression_algorithms_client_to_server: indexmap! {
-            CompressionAlgorithm::NONE => None,
-        },
-        compression_algorithms_server_to_client: indexmap! {
-            CompressionAlgorithm::NONE => None,
-        },
-
-        languages_client_to_server: vec![""],
-        languages_server_to_client: vec![""],
-    };
-
+    let args = Args::parse();
+    let algorithms = get_server_algorithms();
     let host_keys = read_host_keys(&algorithms).context("Failed to read host keys from disk")?;
 
     let authorized_keys =
@@ -159,15 +85,18 @@ async fn main() -> Result<()> {
         authorized_keys,
     });
 
-    if let Err(err) = connect().await {
+    info!("Opened server on port {}", args.port);
+
+    if let Err(err) = connect(args.port).await {
         error!("{:?}", err);
     }
 
     Ok(())
 }
 
-async fn connect() -> Result<()> {
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", PORT))?;
+async fn connect(port: usize) -> Result<()> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+        .context(format!("Failed to create a tcp listener on port {}", port))?;
 
     for client in listener.incoming() {
         let stream = client.context("Client is invalid")?;
@@ -326,4 +255,91 @@ fn read_host_keys(algos: &ServerAlgorithms) -> Result<HashMap<String, EcHostKey>
     }
 
     Ok(keys)
+}
+
+fn get_server_algorithms() -> ServerAlgorithms {
+    ServerAlgorithms {
+        // RFC 9142 § 4
+        kex_algorithms: indexmap! {
+            KexAlgorithm::ECDH_SHA2_NISTP256 => KexAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1
+            },
+            KexAlgorithm::ECDH_SHA2_NISTP384 => KexAlgorithmDetails {
+                hash: MessageDigest::sha384(),
+                curve: Nid::SECP384R1
+            },
+            KexAlgorithm::ECDH_SHA2_NISTP521 => KexAlgorithmDetails {
+                hash: MessageDigest::sha512(),
+                curve: Nid::SECP521R1
+            },
+        },
+
+        // RFC 5656 § 10.1
+        server_host_key_algorithms: indexmap! {
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha384(),
+                curve: Nid::SECP384R1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha512(),
+                curve: Nid::SECP521R1
+            },
+        },
+
+        client_host_key_algorithms: indexmap! {
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP256 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+                curve: Nid::X9_62_PRIME256V1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP384 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha384(),
+                curve: Nid::SECP384R1
+            },
+            HostKeyAlgorithm::ECDSA_SHA2_NISTP521 => HostKeyAlgorithmDetails {
+                hash: MessageDigest::sha512(),
+                curve: Nid::SECP521R1
+            },
+        },
+
+        // RFC 4344 § 4
+        encryption_algorithms_server_to_client: indexmap! {
+            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
+                cipher: Cipher::aes_128_ctr(),
+                block_size: 16,
+            },
+        },
+        encryption_algorithms_client_to_server: indexmap! {
+            EncryptionAlgorithm::AES128_CTR => EncryptionAlgorithmDetails {
+                cipher: Cipher::aes_128_ctr(),
+                block_size: 16,
+            },
+        },
+
+        // RFC 6668 § 2
+        mac_algorithms_server_to_client: indexmap! {
+            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+            }
+        },
+        mac_algorithms_client_to_server: indexmap! {
+            HmacAlgorithm::HMAC_SHA2_256 => HmacAlgorithmDetails {
+                hash: MessageDigest::sha256(),
+            }
+        },
+
+        compression_algorithms_client_to_server: indexmap! {
+            CompressionAlgorithm::NONE => None,
+        },
+        compression_algorithms_server_to_client: indexmap! {
+            CompressionAlgorithm::NONE => None,
+        },
+
+        languages_client_to_server: vec![""],
+        languages_server_to_client: vec![""],
+    }
 }
