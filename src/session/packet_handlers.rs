@@ -110,9 +110,12 @@ pub const channel_open: PacketHandlerFn = |session, mut args| {
     session.open_channel(&mut args.reader)?;
 
     session.set_packet_handler(MessageType::SSH_MSG_CHANNEL_REQUEST, channel_request);
+    session.set_packet_handler(MessageType::SSH_MSG_CHANNEL_EOF, channel_eof);
     session.set_packet_handler(MessageType::SSH_MSG_CHANNEL_CLOSE, channel_close);
     Ok(None)
 };
+
+pub const channel_eof: PacketHandlerFn = |_, _| Ok(None);
 
 pub const channel_close: PacketHandlerFn = |session, _| {
     session.close();

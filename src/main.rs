@@ -111,7 +111,7 @@ async fn connect(port: usize) -> Result<()> {
         tokio::task::spawn(async move {
             match handle.await {
                 Ok(val) => match val {
-                    Ok(()) => debug!("Session for address {} finished successfully", client_addr),
+                    Ok(()) => info!("Session for address {} finished successfully", client_addr),
                     Err(err) => error!(
                         "Session for address {} finished with error: {:?}",
                         client_addr, err
