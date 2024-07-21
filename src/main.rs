@@ -9,6 +9,7 @@
 
 use std::{
     collections::{HashMap, HashSet},
+    env,
     fs::{self, File, Permissions},
     io::{Read, Write},
     net::TcpListener,
@@ -22,7 +23,7 @@ use clap::Parser;
 use crypto::{Crypto, EcHostKey};
 use decoding::decode_ec_public_key;
 use indexmap::indexmap;
-use log::{debug, error, info, trace, warn, LevelFilter};
+use log::{debug, error, info, trace, warn};
 use openssl::{base64, ec::EcKey, hash::MessageDigest, nid::Nid, symm::Cipher};
 use session::{algorithm_negotiation::ServerAlgorithms, Session};
 use tokio::task::JoinHandle;
@@ -65,10 +66,10 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::builder()
-        .format_target(false)
-        .filter_level(LevelFilter::Info)
-        .init();
+    if env::var("RUST_LOG").is_err() {
+        env::set_var("RUST_LOG", "info")
+    }
+    env_logger::builder().format_target(false).init();
 
     let args = Args::parse();
     let algorithms = get_server_algorithms();
