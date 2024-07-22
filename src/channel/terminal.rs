@@ -356,9 +356,19 @@ fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &[TerminalMode]) -> Result<(
             TerminalOpCode::OPOST => termios
                 .output_flags
                 .set(OutputFlags::OPOST, u8_to_bool(mode.arg as u8)?),
-            TerminalOpCode::OLCUC => termios
-                .output_flags
-                .set(OutputFlags::OLCUC, u8_to_bool(mode.arg as u8)?),
+            TerminalOpCode::OLCUC => {
+                #[cfg(target_os = "linux")]
+                {
+                    termios
+                        .output_flags
+                        .set(OutputFlags::OLCUC, u8_to_bool(mode.arg as u8)?)
+                }
+
+                #[cfg(not(target_os = "linux"))]
+                {
+                    return Ok(());
+                }
+            }
             TerminalOpCode::ONLCR => termios
                 .output_flags
                 .set(OutputFlags::ONLCR, u8_to_bool(mode.arg as u8)?),
@@ -449,17 +459,29 @@ fn u32_to_BaudRate(value: u32) -> Result<BaudRate> {
         57600 => BaudRate::B57600,
         115200 => BaudRate::B115200,
         230400 => BaudRate::B230400,
+        #[cfg(target_os = "linux")]
         460800 => BaudRate::B460800,
+        #[cfg(target_os = "linux")]
         500000 => BaudRate::B500000,
+        #[cfg(target_os = "linux")]
         576000 => BaudRate::B576000,
+        #[cfg(target_os = "linux")]
         921600 => BaudRate::B921600,
+        #[cfg(target_os = "linux")]
         1000000 => BaudRate::B1000000,
+        #[cfg(target_os = "linux")]
         1152000 => BaudRate::B1152000,
+        #[cfg(target_os = "linux")]
         1500000 => BaudRate::B1500000,
+        #[cfg(target_os = "linux")]
         2000000 => BaudRate::B2000000,
+        #[cfg(target_os = "linux")]
         2500000 => BaudRate::B2500000,
+        #[cfg(target_os = "linux")]
         3000000 => BaudRate::B3000000,
+        #[cfg(target_os = "linux")]
         3500000 => BaudRate::B3500000,
+        #[cfg(target_os = "linux")]
         4000000 => BaudRate::B4000000,
 
         _ => bail!("Invalid baud rate of {}", value),
