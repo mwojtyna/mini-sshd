@@ -139,8 +139,17 @@ fn read_authorized_keys(supported_algos: &ServerAlgorithms) -> Result<HashSet<Au
     }
 
     let contents = fs::read_to_string(path)?;
-    let split: Vec<&str> = contents.trim().split('\n').collect();
+    let split: Vec<&str> = contents
+        .trim()
+        .split('\n')
+        .filter(|line| !line.is_empty())
+        .collect();
     let mut authorized_keys = HashSet::new();
+
+    if split.is_empty() {
+        warn!("'authorized_keys' file is empty");
+        return Ok(authorized_keys);
+    }
 
     for (n, line) in split.iter().enumerate() {
         let mut parts = line.split(' ');
