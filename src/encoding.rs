@@ -213,28 +213,25 @@ pub fn encode_mpint(data: &BigNumRef) -> Vec<u8> {
 }
 
 // RFC 5656 § 3.1
-pub fn encode_ec_public_key(
-    algorithm: &Algorithm<HostKeyAlgorithmDetails>,
-    key: &[u8],
-) -> Result<Vec<u8>> {
+pub fn encode_ec_public_key(algorithm: &Algorithm<HostKeyAlgorithmDetails>, key: &[u8]) -> Vec<u8> {
     let split: Vec<&str> = algorithm.name.split('-').collect();
     let ident = split.last().unwrap();
 
     let blob = [encode_string(ident.as_bytes()), encode_string(key)].concat();
 
-    Ok([encode_string(algorithm.name.as_bytes()), blob].concat())
+    [encode_string(algorithm.name.as_bytes()), blob].concat()
 }
 
 // RFC 5656 § 3.1.1
 pub fn encode_ec_signature(
     algorithm: &Algorithm<HostKeyAlgorithmDetails>,
     sig: &EcdsaSigRef,
-) -> Result<Vec<u8>> {
+) -> Vec<u8> {
     let signature_blob = [encode_mpint(sig.r()), encode_mpint(sig.s())].concat();
 
-    Ok([
+    [
         encode_string(algorithm.name.as_bytes()),
         encode_string(&signature_blob),
     ]
-    .concat())
+    .concat()
 }

@@ -34,7 +34,7 @@ impl Session {
         let k_s = encode_ec_public_key(
             &self.algorithms().server_host_key_algorithm,
             &host_key.public_key_bytes,
-        )?;
+        );
 
         let crypto = self.crypto().read().unwrap();
 
@@ -57,7 +57,7 @@ impl Session {
             .ec_hash_and_sign(&host_key.ec_pair, &hash_data)
             .context("Failed to hash and sign")?;
 
-        let signature_enc = encode_ec_signature(server_host_key_algorithm, &signed_exchange_hash)?;
+        let signature_enc = encode_ec_signature(server_host_key_algorithm, &signed_exchange_hash);
 
         let packet = PacketBuilder::new(MessageType::SSH_MSG_KEX_ECDH_REPLY, self)
             .write_string(&k_s)
