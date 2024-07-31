@@ -156,7 +156,7 @@ impl Session {
     }
 
     fn concat_digest_data(
-        &mut self,
+        &self,
         user_name: &str,
         service_name: &str,
         public_key_alg_name: &str,

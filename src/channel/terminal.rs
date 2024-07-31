@@ -1,7 +1,11 @@
 use std::{
     fs::File,
     io::{BufReader, Read, Write},
-    os::fd::{AsFd, AsRawFd},
+    os::{
+        fd::{AsFd, AsRawFd},
+        unix::process::CommandExt,
+    },
+    process::{Child, Command},
 };
 
 use anyhow::{bail, Context, Result};
@@ -22,7 +26,6 @@ use nix::{
     unistd::{setsid, User},
 };
 use num_traits::FromPrimitive;
-use tokio::process::Command;
 
 use crate::{
     channel::PtyPair,
@@ -93,7 +96,7 @@ impl Channel {
     }
 
     // RFC 4254 § 6.5
-    pub fn shell(&self, user_name: &str) -> Result<()> {
+    pub fn shell(&mut self, user_name: &str) -> Result<Child> {
         let user = User::from_name(user_name)?
             .context(format!("User with name {:?} not found", user_name))?;
         trace!("user = {:?}", user);
@@ -135,7 +138,7 @@ impl Channel {
         };
         debug!("Opened shell {:?} with pid {:?}", user.shell, child.id());
 
-        Ok(())
+        Ok(child)
     }
 
     // RFC 4254 § 6.7
@@ -166,7 +169,7 @@ impl Channel {
         Ok(())
     }
 
-    pub fn read_terminal(&mut self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
+    pub fn read_terminal(&self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
         self.pty()
             .set_is_raw_mode(is_raw_mode(&self.pty().pair.master)?);
 

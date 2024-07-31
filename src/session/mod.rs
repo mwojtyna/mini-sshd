@@ -153,7 +153,7 @@ impl Session {
         self.client_sequence_number.load(ORDERING)
     }
 
-    pub fn set_packet_handler(&mut self, msg_type: MessageType, handler: PacketHandlerFn) {
+    pub fn set_packet_handler(&self, msg_type: MessageType, handler: PacketHandlerFn) {
         self.packet_handlers
             .lock()
             .unwrap()

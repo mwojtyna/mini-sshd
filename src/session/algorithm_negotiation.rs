@@ -357,7 +357,7 @@ impl Session {
 
     // RFC 4253 § 7.1
     fn negotiate_algorithm<V>(
-        &mut self,
+        &self,
         client_algorithms: &[String],
         server_algorithms: &AlgorithmsCollection<V>,
     ) -> Result<String> {

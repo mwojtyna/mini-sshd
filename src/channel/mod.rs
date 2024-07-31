@@ -50,7 +50,6 @@ pub struct Pty {
     pub pair: PtyPair,
     raw_mode: Arc<AtomicBool>,
     envs: HashMap<String, String>,
-    stop_pty_thread: Arc<AtomicBool>,
 }
 
 pub struct PtyPair {
@@ -64,7 +63,6 @@ impl Pty {
             pair,
             raw_mode: Arc::new(false.into()),
             envs: HashMap::new(),
-            stop_pty_thread: Arc::new(false.into()),
         }
     }
 
@@ -74,15 +72,6 @@ impl Pty {
 
     pub fn set_is_raw_mode(&self, raw_mode: bool) {
         self.raw_mode.store(raw_mode, ORDERING);
-    }
-
-    pub fn should_stop_pty_thread(&self) -> bool {
-        self.stop_pty_thread.load(ORDERING)
-    }
-
-    /// Sets a flag to stop the pty thread on the next iteration
-    pub fn stop_pty_thread(&self) {
-        self.stop_pty_thread.store(true, ORDERING);
     }
 
     pub fn try_clone(&self) -> Result<Self> {
@@ -97,7 +86,6 @@ impl Pty {
             pair: pty_fds,
             raw_mode: self.raw_mode.clone(),
             envs: self.envs.clone(),
-            stop_pty_thread: self.stop_pty_thread.clone(),
         })
     }
 }
@@ -122,7 +110,7 @@ impl Channel {
         }
     }
 
-    pub fn send_packet(&mut self, packet: &[u8], session: &mut Session) -> Result<()> {
+    pub fn send_packet(&self, packet: &[u8], session: &mut Session) -> Result<()> {
         if packet.len() > self.max_packet_size as usize {
             bail!(
                 "Packet length {} exceeds max_packet_size {}",
@@ -155,13 +143,13 @@ impl Channel {
         self.window_size.load(ORDERING)
     }
 
-    pub fn decrease_window_size(&mut self, size: u32) {
+    pub fn decrease_window_size(&self, size: u32) {
         if self.window_size() > size {
             self.window_size.fetch_sub(size, ORDERING);
         }
     }
 
-    pub fn increase_window_size(&mut self, size: u32) -> Result<()> {
+    pub fn increase_window_size(&self, size: u32) -> Result<()> {
         let prev = self.window_size();
         self.window_size.fetch_add(size, ORDERING);
 

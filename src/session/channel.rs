@@ -1,4 +1,10 @@
-use std::io::BufReader;
+use std::{
+    io::BufReader,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 
 use crate::{
     channel::{Channel, ChannelOpenFailureReason, ChannelRequestType, SESSION_REQUEST},
@@ -98,13 +104,27 @@ impl Session {
                     let user_name = self.user_name();
 
                     let mut channel = channel.try_clone().context("Failed to clone channel")?;
-                    channel.shell(user_name)?;
+                    let mut shell_process = channel.shell(user_name)?;
 
                     let mut session = self.try_clone().context("Failed to clone session")?;
                     let mut reader = BufReader::new(channel.pty().pair.master.try_clone()?);
 
+                    const ORDERING: Ordering = Ordering::Relaxed;
+                    let stop = Arc::new(AtomicBool::new(false));
+
+                    let stop_clone = stop.clone();
+                    let mut channel_clone = channel.try_clone()?;
+                    tokio::task::spawn_blocking::<_, Result<()>>(move || {
+                        shell_process.wait()?;
+                        stop_clone.store(true, ORDERING);
+                        // Send an unused ASCII code to avoid displaying additional characters in the terminal,
+                        // continue the terminal read loop, check stop flag and stop the pty thread
+                        channel_clone.write_terminal(&[129])?;
+                        Ok(())
+                    });
+
                     tokio::task::spawn_blocking::<_, Result<()>>(move || loop {
-                        if channel.pty().should_stop_pty_thread() {
+                        if stop.load(ORDERING) {
                             let packet =
                                 PacketBuilder::new(MessageType::SSH_MSG_CHANNEL_CLOSE, &session)
                                     .write_u32(recipient_chan_num)
@@ -172,14 +192,7 @@ impl Session {
 
         if let Some(channel) = channel {
             let data = reader.next_string()?;
-
             if channel.pty_initialized() {
-                // Close connection if the client sent an EOF (^D)
-                const EOF_CODE: u8 = 4;
-                if !channel.pty().raw_mode() && data.contains(&EOF_CODE) {
-                    channel.pty_mut().stop_pty_thread();
-                }
-
                 channel.write_terminal(&data)?;
             }
         } else {
