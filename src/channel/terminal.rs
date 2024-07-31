@@ -1,8 +1,7 @@
 use std::{
     fs::File,
     io::{BufReader, Read, Write},
-    os::fd::{AsFd, AsRawFd, FromRawFd},
-    process::Stdio,
+    os::fd::{AsFd, AsRawFd},
 };
 
 use anyhow::{bail, Context, Result};
@@ -111,11 +110,6 @@ impl Channel {
                 .next()
                 .context("Invalid shell path")?;
 
-        // Don't use server's stdio
-        let stdin = fd_to_stdio(slave);
-        let stdout = fd_to_stdio(slave);
-        let stderr = fd_to_stdio(slave);
-
         let child = unsafe {
             Command::new(&user.shell)
                 .arg0(arg0)
@@ -126,9 +120,9 @@ impl Channel {
                 .envs(&self.pty().envs)
                 .uid(user.uid.as_raw())
                 .gid(user.gid.as_raw())
-                .stdin(stdin)
-                .stdout(stdout)
-                .stderr(stderr)
+                .stdin(slave.try_clone()?)
+                .stdout(slave.try_clone()?)
+                .stderr(slave.try_clone()?)
                 .pre_exec(move || {
                     setsid()?;
 
@@ -431,10 +425,6 @@ fn is_raw_mode<F: AsFd>(master_fd: F) -> Result<bool> {
         && !termios.local_flags.contains(raw_lflags)
         && !termios.control_flags.contains(raw_cflags)
         && termios.control_flags.contains(ControlFlags::CS8))
-}
-
-fn fd_to_stdio<F: AsRawFd>(fd: &F) -> Stdio {
-    unsafe { Stdio::from_raw_fd(fd.as_raw_fd()) }
 }
 
 #[allow(non_snake_case)]
