@@ -1,6 +1,5 @@
 use std::{
     io::{BufReader, Read},
-    mem::size_of,
     net::TcpStream,
 };
 

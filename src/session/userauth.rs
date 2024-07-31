@@ -1,5 +1,3 @@
-use core::mem::size_of;
-
 use anyhow::{bail, Context, Result};
 use log::{debug, trace};
 

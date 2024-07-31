@@ -1,5 +1,3 @@
-use std::mem::size_of;
-
 use anyhow::Result;
 use log::{debug, trace};
 use num_traits::FromPrimitive;
