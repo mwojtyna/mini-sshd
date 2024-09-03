@@ -170,9 +170,6 @@ impl Channel {
     }
 
     pub fn read_terminal(&self, reader: &mut BufReader<File>) -> Result<Vec<u8>> {
-        self.pty()
-            .set_is_raw_mode(is_raw_mode(&self.pty().pair.master)?);
-
         let mut buf = vec![0; self.max_packet_size as usize - 512]; // 0.5KB less than max packet size to account for packet length, padding, etc.
         let amount = reader.read(&mut buf)?;
 
@@ -400,34 +397,6 @@ fn set_terminal_modes<F: AsFd + Copy>(fd: F, modes: &[TerminalMode]) -> Result<(
     tcsetattr(fd, SetArg::TCSANOW, &termios)?;
 
     Ok(())
-}
-
-fn is_raw_mode<F: AsFd>(master_fd: F) -> Result<bool> {
-    let termios = tcgetattr(master_fd)?;
-    let raw_iflags = InputFlags::from_iter([
-        InputFlags::IGNBRK,
-        InputFlags::BRKINT,
-        InputFlags::PARMRK,
-        InputFlags::ISTRIP,
-        InputFlags::INLCR,
-        InputFlags::IGNCR,
-        InputFlags::ICRNL,
-        InputFlags::IXON,
-    ]);
-    let raw_lflags = LocalFlags::from_iter([
-        LocalFlags::ECHO,
-        LocalFlags::ECHONL,
-        LocalFlags::ICANON,
-        LocalFlags::ISIG,
-        LocalFlags::IEXTEN,
-    ]);
-    let raw_cflags = ControlFlags::from_iter([ControlFlags::CSIZE, ControlFlags::PARENB]);
-
-    Ok(!termios.input_flags.contains(raw_iflags)
-        && !termios.output_flags.contains(OutputFlags::OPOST)
-        && !termios.local_flags.contains(raw_lflags)
-        && !termios.control_flags.contains(raw_cflags)
-        && termios.control_flags.contains(ControlFlags::CS8))
 }
 
 #[allow(non_snake_case)]

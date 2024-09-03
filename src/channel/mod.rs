@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs::File,
     sync::{
-        atomic::{AtomicBool, AtomicU32, Ordering},
+        atomic::{AtomicU32, Ordering},
         Arc,
     },
 };
@@ -48,7 +48,6 @@ pub struct Channel {
 
 pub struct Pty {
     pub pair: PtyPair,
-    raw_mode: Arc<AtomicBool>,
     envs: HashMap<String, String>,
 }
 
@@ -61,17 +60,8 @@ impl Pty {
     pub fn new(pair: PtyPair) -> Self {
         Self {
             pair,
-            raw_mode: Arc::new(false.into()),
             envs: HashMap::new(),
         }
-    }
-
-    pub fn raw_mode(&self) -> bool {
-        self.raw_mode.load(ORDERING)
-    }
-
-    pub fn set_is_raw_mode(&self, raw_mode: bool) {
-        self.raw_mode.store(raw_mode, ORDERING);
     }
 
     pub fn try_clone(&self) -> Result<Self> {
@@ -84,7 +74,6 @@ impl Pty {
 
         Ok(Self {
             pair: pty_fds,
-            raw_mode: self.raw_mode.clone(),
             envs: self.envs.clone(),
         })
     }
